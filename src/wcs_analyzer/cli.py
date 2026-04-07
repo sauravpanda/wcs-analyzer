@@ -39,66 +39,57 @@ def main():
     pass
 
 
+# Default models per provider
+_DEFAULT_MODELS = {
+    "gemini": "gemini-2.5-flash",
+    "claude": "claude-sonnet-4-6",
+}
+
+
 @main.command()
 @click.argument("video_path", type=click.Path(exists=True, path_type=Path))
-@click.option("--model", default="claude-sonnet-4-6", help="Claude model to use for analysis.")
+@click.option("--provider", type=click.Choice(["gemini", "claude"]), default="gemini", help="AI provider (gemini uses native video+audio).")
+@click.option("--model", default=None, help="Model to use (defaults to provider's best).")
 @click.option("--detail", type=click.Choice(["low", "medium", "high"]), default="medium", help="Analysis detail level.")
 @click.option("--output", "-o", type=click.Path(path_type=Path), default=None, help="Save report as JSON to this path.")
-@click.option("--fps", type=float, default=3.0, callback=_validate_fps, help="Frames per second to sample (0-30).")
+@click.option("--fps", type=float, default=3.0, callback=_validate_fps, help="Frames per second to sample — Claude only (0-30).")
 @click.option("--no-cache", is_flag=True, default=False, help="Skip cache and force re-analysis.")
 @click.option("--format", "fmt", type=click.Choice(["terminal", "json", "csv"]), default="terminal", help="Output format.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging output.")
-def analyze(video_path: Path, model: str, detail: str, output: Path | None, fps: float, no_cache: bool, fmt: str, verbose: bool):
+def analyze(video_path: Path, provider: str, model: str | None, detail: str, output: Path | None, fps: float, no_cache: bool, fmt: str, verbose: bool):
     """Analyze a West Coast Swing dance video.
 
-    Extracts frames and audio, detects beats, sends to Claude for
-    WSDC-style scoring across timing, technique, teamwork, and presentation.
+    Uses Gemini (default) for native video+audio analysis, or Claude as a
+    frame-based fallback. Gemini can see motion and hear the music directly.
     """
-    from .video import extract_frames
-    from .audio import extract_audio_features
-    from .analyzer import analyze_dance
     from .scoring import compute_final_scores
     from .report import print_report, save_report_json, save_report_csv
     from .cache import get_cached_result, save_to_cache, segments_to_dicts, dicts_to_segments
 
     _setup_logging(verbose)
+    model = model or _DEFAULT_MODELS[provider]
 
-    console.print(f"\n[bold]WCS Analyzer[/bold] — analyzing [cyan]{video_path.name}[/cyan]\n")
+    console.print(f"\n[bold]WCS Analyzer[/bold] — analyzing [cyan]{video_path.name}[/cyan]")
+    console.print(f"  Provider: [bold]{provider}[/bold] ({model})\n")
 
     try:
         # Check cache first
+        cache_key_model = f"{provider}:{model}"
         cached = None
         if not no_cache:
-            cached = get_cached_result(video_path, fps, detail, model)
+            cached = get_cached_result(video_path, fps, detail, cache_key_model)
 
         if cached is not None:
             console.print("  [cyan]Using cached analysis result[/cyan]")
             segments = dicts_to_segments(cached)
+        elif provider == "gemini":
+            segments = _analyze_with_gemini(video_path, model, detail)
         else:
-            with console.status("Extracting video frames..."):
-                frames = extract_frames(video_path, fps=fps)
-            console.print(f"  Extracted [green]{len(frames.images)}[/green] frames ({frames.duration:.1f}s video)")
+            segments = _analyze_with_claude(video_path, model, detail, fps)
 
-            if frames.duration < MIN_VIDEO_DURATION:
-                console.print(f"  [yellow]Warning: Video is very short ({frames.duration:.0f}s). Results may be limited.[/yellow]")
-            elif frames.duration > MAX_VIDEO_DURATION:
-                console.print(f"  [yellow]Warning: Video is long ({frames.duration:.0f}s). Consider trimming to the key section.[/yellow]")
-
-            with console.status("Analyzing audio & detecting beats..."):
-                audio = extract_audio_features(video_path)
-
-            if audio.bpm > 0:
-                console.print(f"  Detected tempo: [green]{audio.bpm:.0f} BPM[/green] ({len(audio.beat_times)} beats)")
-            else:
-                console.print("  [yellow]No audio detected — analysis will be visual only.[/yellow]")
-
-            with console.status("Sending to Claude for analysis..."):
-                segments = analyze_dance(frames, audio, model=model, detail=detail)
-            console.print(f"  Analyzed [green]{len(segments)}[/green] segments")
-
-            # Save to cache
-            if not no_cache:
-                save_to_cache(video_path, fps, detail, model, segments_to_dicts(segments))
+        # Save to cache
+        if cached is None and not no_cache:
+            save_to_cache(video_path, fps, detail, cache_key_model, segments_to_dicts(segments))
 
         scores = compute_final_scores(segments)
 
@@ -119,6 +110,45 @@ def analyze(video_path: Path, model: str, detail: str, output: Path | None, fps:
     except WCSAnalyzerError as e:
         console.print(f"\n  [red]Error:[/red] {e}")
         raise SystemExit(1)
+
+
+def _analyze_with_gemini(video_path: Path, model: str, detail: str) -> list:
+    """Run analysis via Gemini's native video understanding."""
+    from .gemini_analyzer import analyze_dance_gemini
+
+    with console.status("Uploading video to Gemini..."):
+        segments = analyze_dance_gemini(video_path, model=model, detail=detail)
+    console.print("  Gemini analyzed full video (native video + audio)")
+    return segments
+
+
+def _analyze_with_claude(video_path: Path, model: str, detail: str, fps: float) -> list:
+    """Run analysis via Claude's frame-based approach."""
+    from .video import extract_frames
+    from .audio import extract_audio_features
+    from .analyzer import analyze_dance
+
+    with console.status("Extracting video frames..."):
+        frames = extract_frames(video_path, fps=fps)
+    console.print(f"  Extracted [green]{len(frames.images)}[/green] frames ({frames.duration:.1f}s video)")
+
+    if frames.duration < MIN_VIDEO_DURATION:
+        console.print(f"  [yellow]Warning: Video is very short ({frames.duration:.0f}s). Results may be limited.[/yellow]")
+    elif frames.duration > MAX_VIDEO_DURATION:
+        console.print(f"  [yellow]Warning: Video is long ({frames.duration:.0f}s). Consider trimming to the key section.[/yellow]")
+
+    with console.status("Analyzing audio & detecting beats..."):
+        audio = extract_audio_features(video_path)
+
+    if audio.bpm > 0:
+        console.print(f"  Detected tempo: [green]{audio.bpm:.0f} BPM[/green] ({len(audio.beat_times)} beats)")
+    else:
+        console.print("  [yellow]No audio detected — analysis will be visual only.[/yellow]")
+
+    with console.status("Sending to Claude for analysis..."):
+        segments = analyze_dance(frames, audio, model=model, detail=detail)
+    console.print(f"  Analyzed [green]{len(segments)}[/green] segments")
+    return segments
 
 
 @main.command()
@@ -150,15 +180,13 @@ def compare(json_files: tuple[Path, ...]):
 
 @main.command()
 @click.argument("video_path", type=click.Path(exists=True, path_type=Path))
+@click.option("--provider", type=click.Choice(["gemini", "claude"]), default="gemini", help="AI provider.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging output.")
-def timing(video_path: Path, verbose: bool):
+def timing(video_path: Path, provider: str, verbose: bool):
     """Quick timing-only analysis of a WCS video.
 
     Focuses only on beat alignment and timing accuracy.
     """
-    from .video import extract_frames
-    from .audio import extract_audio_features
-    from .analyzer import analyze_dance
     from .scoring import compute_final_scores
     from .report import print_timing_report
 
@@ -167,19 +195,11 @@ def timing(video_path: Path, verbose: bool):
     console.print(f"\n[bold]WCS Analyzer[/bold] — timing check for [cyan]{video_path.name}[/cyan]\n")
 
     try:
-        with console.status("Extracting video frames..."):
-            frames = extract_frames(video_path, fps=2.0)
-
-        with console.status("Analyzing audio & detecting beats..."):
-            audio = extract_audio_features(video_path)
-
-        if audio.bpm > 0:
-            console.print(f"  Tempo: [green]{audio.bpm:.0f} BPM[/green]")
+        model = _DEFAULT_MODELS[provider]
+        if provider == "gemini":
+            segments = _analyze_with_gemini(video_path, model, detail="low")
         else:
-            console.print("  [yellow]No audio detected — timing analysis may be limited.[/yellow]")
-
-        with console.status("Analyzing timing..."):
-            segments = analyze_dance(frames, audio, model="claude-sonnet-4-6", detail="low")
+            segments = _analyze_with_claude(video_path, model, detail="low", fps=2.0)
 
         scores = compute_final_scores(segments)
         print_timing_report(scores, video_path.name)

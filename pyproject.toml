@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "AI-powered West Coast Swing dance video analyzer with WSDC-style scoring"
 requires-python = ">=3.10"
 dependencies = [
+    "google-genai>=1.0.0",
     "anthropic>=0.40.0",
     "opencv-python>=4.9.0",
     "librosa>=0.10.0",

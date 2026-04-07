@@ -1,4 +1,4 @@
-"""WCS-specific prompts for Claude vision analysis."""
+"""WCS-specific prompts for dance video analysis."""
 
 SYSTEM_PROMPT = """\
 You are an expert West Coast Swing (WCS) dance judge with decades of experience \
@@ -98,6 +98,66 @@ Respond in this exact JSON format:
     "notes": "<follow-specific observations>"
   }}
 }}
+
+Only output valid JSON, no other text.\
+"""
+
+GEMINI_VIDEO_PROMPT = """\
+Watch and listen to this entire West Coast Swing dance video carefully. \
+Pay attention to both the visual movement AND the music/audio to judge timing accuracy.
+
+Analyze the full performance and provide a comprehensive evaluation. \
+Since you can hear the music, evaluate whether the dancers are truly on beat — \
+listen for anchors landing on the downbeat, triples matching the rhythm, \
+and whether styling choices align with musical accents and breaks.
+
+Respond in this exact JSON format:
+{
+  "timing": {
+    "score": <1-10>,
+    "on_beat": <true/false for overall>,
+    "off_beat_moments": [
+      {"timestamp_approx": "<time>", "description": "<what happened>", "beat_count": "<e.g., 3&4>"}
+    ],
+    "rhythm_consistency": "<assessment of timing throughout>",
+    "notes": "<detailed timing observations referencing what you heard in the music>"
+  },
+  "technique": {
+    "score": <1-10>,
+    "posture": {"score": <1-10>, "notes": "<observations>"},
+    "extension": {"score": <1-10>, "notes": "<observations>"},
+    "footwork": {"score": <1-10>, "notes": "<observations>"},
+    "slot": {"score": <1-10>, "notes": "<observations>"},
+    "notes": "<overall technique observations>"
+  },
+  "teamwork": {
+    "score": <1-10>,
+    "connection": "<observations about lead/follow connection>",
+    "notes": "<overall teamwork observations>"
+  },
+  "presentation": {
+    "score": <1-10>,
+    "musicality": "<observations — reference specific musical moments>",
+    "styling": "<observations>",
+    "notes": "<overall presentation observations>"
+  },
+  "patterns_identified": ["<e.g., sugar push, left side pass, whip>"],
+  "highlights": ["<notable positive moments with approximate timestamps>"],
+  "improvements": ["<specific actionable suggestions>"],
+  "lead": {
+    "technique_score": <1-10>,
+    "presentation_score": <1-10>,
+    "notes": "<lead-specific observations>"
+  },
+  "follow": {
+    "technique_score": <1-10>,
+    "presentation_score": <1-10>,
+    "notes": "<follow-specific observations>"
+  },
+  "overall_impression": "<1-2 sentence overall assessment>",
+  "estimated_bpm": <estimated BPM from the music>,
+  "song_style": "<e.g., blues, contemporary, lyrical>"
+}
 
 Only output valid JSON, no other text.\
 """
