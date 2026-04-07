@@ -1,5 +1,6 @@
 """CLI report formatting with rich."""
 
+import csv
 import json
 from pathlib import Path
 
@@ -9,6 +10,8 @@ from rich.table import Table
 from rich.text import Text
 
 from .scoring import FinalScores
+
+_COMPARE_CATEGORIES = ["timing", "technique", "teamwork", "presentation"]
 
 console = Console()
 
@@ -109,6 +112,33 @@ def print_report(scores: FinalScores, video_name: str) -> None:
     console.print(tech_table)
     console.print()
 
+    # Partner breakdown (only if data was detected)
+    if scores.lead_technique > 0 or scores.follow_technique > 0:
+        partner_table = Table(title="Partner Breakdown", show_header=True, header_style="bold cyan")
+        partner_table.add_column("", style="bold", width=16)
+        partner_table.add_column("Lead", justify="center", width=12)
+        partner_table.add_column("Follow", justify="center", width=12)
+
+        for label, lead_s, follow_s in [
+            ("Technique", scores.lead_technique, scores.follow_technique),
+            ("Presentation", scores.lead_presentation, scores.follow_presentation),
+        ]:
+            lc = _score_color(lead_s)
+            fc = _score_color(follow_s)
+            partner_table.add_row(
+                label,
+                f"[{lc}]{lead_s}[/{lc}]",
+                f"[{fc}]{follow_s}[/{fc}]",
+            )
+
+        console.print(partner_table)
+
+        if scores.lead_notes:
+            console.print(f"\n  [bold]Lead notes:[/bold] {scores.lead_notes}")
+        if scores.follow_notes:
+            console.print(f"  [bold]Follow notes:[/bold] {scores.follow_notes}")
+        console.print()
+
     # Off-beat moments
     if scores.off_beat_moments:
         console.print(f"  [bold]Off-beat moments:[/bold] [red]{scores.total_off_beat} detected[/red]")
@@ -189,6 +219,18 @@ def save_report_json(scores: FinalScores, path: Path) -> None:
             "footwork": scores.footwork,
             "slot": scores.slot,
         },
+        "partner_breakdown": {
+            "lead": {
+                "technique": scores.lead_technique,
+                "presentation": scores.lead_presentation,
+                "notes": scores.lead_notes,
+            },
+            "follow": {
+                "technique": scores.follow_technique,
+                "presentation": scores.follow_presentation,
+                "notes": scores.follow_notes,
+            },
+        },
         "off_beat_moments": scores.off_beat_moments,
         "total_off_beat": scores.total_off_beat,
         "patterns": scores.all_patterns,
@@ -208,3 +250,114 @@ def save_report_json(scores: FinalScores, path: Path) -> None:
         ],
     }
     path.write_text(json.dumps(data, indent=2))
+
+
+def save_report_csv(scores: FinalScores, path: Path) -> None:
+    """Save the report as CSV with a summary row and per-segment rows."""
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        # Summary section
+        writer.writerow(["Section", "Category", "Score", "Grade", "Details"])
+        writer.writerow(["Overall", "", scores.overall, scores.grade, scores.overall_impression])
+        writer.writerow(["Category", "Timing", scores.timing, "", "Weight: 30%"])
+        writer.writerow(["Category", "Technique", scores.technique, "", "Weight: 30%"])
+        writer.writerow(["Category", "Teamwork", scores.teamwork, "", "Weight: 20%"])
+        writer.writerow(["Category", "Presentation", scores.presentation, "", "Weight: 20%"])
+        writer.writerow(["Technique", "Posture", scores.posture, "", ""])
+        writer.writerow(["Technique", "Extension", scores.extension, "", ""])
+        writer.writerow(["Technique", "Footwork", scores.footwork, "", ""])
+        writer.writerow(["Technique", "Slot", scores.slot, "", ""])
+        writer.writerow([])
+        # Strengths / improvements
+        for s in scores.top_strengths:
+            writer.writerow(["Strength", "", "", "", s])
+        for s in scores.top_improvements:
+            writer.writerow(["Improvement", "", "", "", s])
+        if scores.all_patterns:
+            writer.writerow(["Patterns", "", "", "", "; ".join(scores.all_patterns)])
+        writer.writerow([])
+        # Per-segment scores
+        writer.writerow(["Segment", "Start", "End", "Timing", "Technique", "Teamwork", "Presentation"])
+        for i, seg in enumerate(scores.segments):
+            writer.writerow([
+                i + 1,
+                f"{seg.start_time:.1f}",
+                f"{seg.end_time:.1f}",
+                seg.timing_score,
+                seg.technique_score,
+                seg.teamwork_score,
+                seg.presentation_score,
+            ])
+
+
+def _trend(current: float, previous: float) -> str:
+    """Return a trend indicator comparing two scores."""
+    diff = current - previous
+    if diff > 0.5:
+        return f"[green]+{diff:.1f} \u2191[/green]"
+    if diff < -0.5:
+        return f"[red]{diff:.1f} \u2193[/red]"
+    return "[dim]\u2192[/dim]"
+
+
+def print_comparison(reports: list[tuple[str, dict]]) -> None:
+    """Print a side-by-side comparison of multiple analysis reports."""
+    console.print()
+    console.print(Panel(
+        Text("WCS Score Comparison", style="bold white", justify="center"),
+        style="blue", padding=(1, 2),
+    ))
+
+    # Overall scores table
+    table = Table(title="Overall Scores", show_header=True, header_style="bold cyan")
+    table.add_column("Report", style="bold", width=20)
+    table.add_column("Overall", justify="center", width=10)
+    table.add_column("Grade", justify="center", width=8)
+    table.add_column("Trend", justify="center", width=10)
+
+    prev_overall = None
+    for name, data in reports:
+        scores = data.get("scores", {})
+        overall = scores.get("overall", 0)
+        grade = scores.get("grade", "?")
+        color = _score_color(overall)
+        trend_str = _trend(overall, prev_overall) if prev_overall is not None else ""
+        table.add_row(name, f"[{color}]{overall}[/{color}]", f"[{color}]{grade}[/{color}]", trend_str)
+        prev_overall = overall
+
+    console.print(table)
+    console.print()
+
+    # Category breakdown
+    cat_table = Table(title="Category Comparison", show_header=True, header_style="bold cyan")
+    cat_table.add_column("Category", style="bold", width=16)
+    for name, _ in reports:
+        cat_table.add_column(name, justify="center", width=12)
+
+    for cat in _COMPARE_CATEGORIES:
+        row = [cat.title()]
+        for _, data in reports:
+            score = data.get("scores", {}).get(cat, 0)
+            color = _score_color(score)
+            row.append(f"[{color}]{score}[/{color}]")
+        cat_table.add_row(*row)
+
+    console.print(cat_table)
+    console.print()
+
+    # Technique sub-scores
+    tech_table = Table(title="Technique Breakdown", show_header=True, header_style="bold cyan")
+    tech_table.add_column("Area", style="bold", width=16)
+    for name, _ in reports:
+        tech_table.add_column(name, justify="center", width=12)
+
+    for area in ["posture", "extension", "footwork", "slot"]:
+        row = [area.title()]
+        for _, data in reports:
+            score = data.get("technique_breakdown", {}).get(area, 0)
+            color = _score_color(score)
+            row.append(f"[{color}]{score}[/{color}]")
+        tech_table.add_row(*row)
+
+    console.print(tech_table)
+    console.print()

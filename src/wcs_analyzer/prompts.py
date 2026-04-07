@@ -86,7 +86,17 @@ Respond in this exact JSON format:
   }},
   "patterns_identified": ["<e.g., sugar push, left side pass, whip>"],
   "highlights": ["<notable positive moments>"],
-  "improvements": ["<specific actionable suggestions>"]
+  "improvements": ["<specific actionable suggestions>"],
+  "lead": {{
+    "technique_score": <1-10>,
+    "presentation_score": <1-10>,
+    "notes": "<lead-specific observations>"
+  }},
+  "follow": {{
+    "technique_score": <1-10>,
+    "presentation_score": <1-10>,
+    "notes": "<follow-specific observations>"
+  }}
 }}
 
 Only output valid JSON, no other text.\
@@ -133,7 +143,17 @@ Provide a final summary analysis combining all segments. Respond in this exact J
   "patterns_seen": ["<all patterns identified across segments>"],
   "top_strengths": ["<top 3 strengths>"],
   "top_improvements": ["<top 3 areas to improve with specific advice>"],
-  "overall_impression": "<1-2 sentence overall assessment>"
+  "overall_impression": "<1-2 sentence overall assessment>",
+  "lead": {{
+    "technique_score": <1-10>,
+    "presentation_score": <1-10>,
+    "notes": "<lead-specific summary>"
+  }},
+  "follow": {{
+    "technique_score": <1-10>,
+    "presentation_score": <1-10>,
+    "notes": "<follow-specific summary>"
+  }}
 }}
 
 Only output valid JSON, no other text.\

@@ -45,8 +45,10 @@ def main():
 @click.option("--detail", type=click.Choice(["low", "medium", "high"]), default="medium", help="Analysis detail level.")
 @click.option("--output", "-o", type=click.Path(path_type=Path), default=None, help="Save report as JSON to this path.")
 @click.option("--fps", type=float, default=3.0, callback=_validate_fps, help="Frames per second to sample (0-30).")
+@click.option("--no-cache", is_flag=True, default=False, help="Skip cache and force re-analysis.")
+@click.option("--format", "fmt", type=click.Choice(["terminal", "json", "csv"]), default="terminal", help="Output format.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging output.")
-def analyze(video_path: Path, model: str, detail: str, output: Path | None, fps: float, verbose: bool):
+def analyze(video_path: Path, model: str, detail: str, output: Path | None, fps: float, no_cache: bool, fmt: str, verbose: bool):
     """Analyze a West Coast Swing dance video.
 
     Extracts frames and audio, detects beats, sends to Claude for
@@ -56,45 +58,94 @@ def analyze(video_path: Path, model: str, detail: str, output: Path | None, fps:
     from .audio import extract_audio_features
     from .analyzer import analyze_dance
     from .scoring import compute_final_scores
-    from .report import print_report, save_report_json
+    from .report import print_report, save_report_json, save_report_csv
+    from .cache import get_cached_result, save_to_cache, segments_to_dicts, dicts_to_segments
 
     _setup_logging(verbose)
 
     console.print(f"\n[bold]WCS Analyzer[/bold] — analyzing [cyan]{video_path.name}[/cyan]\n")
 
     try:
-        with console.status("Extracting video frames..."):
-            frames = extract_frames(video_path, fps=fps)
-        console.print(f"  Extracted [green]{len(frames.images)}[/green] frames ({frames.duration:.1f}s video)")
+        # Check cache first
+        cached = None
+        if not no_cache:
+            cached = get_cached_result(video_path, fps, detail, model)
 
-        if frames.duration < MIN_VIDEO_DURATION:
-            console.print(f"  [yellow]Warning: Video is very short ({frames.duration:.0f}s). Results may be limited.[/yellow]")
-        elif frames.duration > MAX_VIDEO_DURATION:
-            console.print(f"  [yellow]Warning: Video is long ({frames.duration:.0f}s). Consider trimming to the key section.[/yellow]")
-
-        with console.status("Analyzing audio & detecting beats..."):
-            audio = extract_audio_features(video_path)
-
-        if audio.bpm > 0:
-            console.print(f"  Detected tempo: [green]{audio.bpm:.0f} BPM[/green] ({len(audio.beat_times)} beats)")
+        if cached is not None:
+            console.print("  [cyan]Using cached analysis result[/cyan]")
+            segments = dicts_to_segments(cached)
         else:
-            console.print("  [yellow]No audio detected — analysis will be visual only.[/yellow]")
+            with console.status("Extracting video frames..."):
+                frames = extract_frames(video_path, fps=fps)
+            console.print(f"  Extracted [green]{len(frames.images)}[/green] frames ({frames.duration:.1f}s video)")
 
-        with console.status("Sending to Claude for analysis..."):
-            segments = analyze_dance(frames, audio, model=model, detail=detail)
-        console.print(f"  Analyzed [green]{len(segments)}[/green] segments")
+            if frames.duration < MIN_VIDEO_DURATION:
+                console.print(f"  [yellow]Warning: Video is very short ({frames.duration:.0f}s). Results may be limited.[/yellow]")
+            elif frames.duration > MAX_VIDEO_DURATION:
+                console.print(f"  [yellow]Warning: Video is long ({frames.duration:.0f}s). Consider trimming to the key section.[/yellow]")
+
+            with console.status("Analyzing audio & detecting beats..."):
+                audio = extract_audio_features(video_path)
+
+            if audio.bpm > 0:
+                console.print(f"  Detected tempo: [green]{audio.bpm:.0f} BPM[/green] ({len(audio.beat_times)} beats)")
+            else:
+                console.print("  [yellow]No audio detected — analysis will be visual only.[/yellow]")
+
+            with console.status("Sending to Claude for analysis..."):
+                segments = analyze_dance(frames, audio, model=model, detail=detail)
+            console.print(f"  Analyzed [green]{len(segments)}[/green] segments")
+
+            # Save to cache
+            if not no_cache:
+                save_to_cache(video_path, fps, detail, model, segments_to_dicts(segments))
 
         scores = compute_final_scores(segments)
 
-        print_report(scores, video_path.name)
-
-        if output:
-            save_report_json(scores, output)
-            console.print(f"\n  Report saved to [cyan]{output}[/cyan]")
+        if fmt == "csv":
+            out_path = output or Path(video_path.stem + "_report.csv")
+            save_report_csv(scores, out_path)
+            console.print(f"\n  CSV report saved to [cyan]{out_path}[/cyan]")
+        elif fmt == "json":
+            out_path = output or Path(video_path.stem + "_report.json")
+            save_report_json(scores, out_path)
+            console.print(f"\n  JSON report saved to [cyan]{out_path}[/cyan]")
+        else:
+            print_report(scores, video_path.name)
+            if output:
+                save_report_json(scores, output)
+                console.print(f"\n  Report saved to [cyan]{output}[/cyan]")
 
     except WCSAnalyzerError as e:
         console.print(f"\n  [red]Error:[/red] {e}")
         raise SystemExit(1)
+
+
+@main.command()
+@click.argument("json_files", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path))
+def compare(json_files: tuple[Path, ...]):
+    """Compare scores across multiple analysis JSON reports.
+
+    Pass 2 or more JSON report files (created via --output or --format json).
+
+    Example: wcs-analyzer compare run1.json run2.json run3.json
+    """
+    from .report import print_comparison
+    import json as json_mod
+
+    if len(json_files) < 2:
+        console.print("[red]Error:[/red] Need at least 2 JSON reports to compare.")
+        raise SystemExit(1)
+
+    reports = []
+    for p in json_files:
+        try:
+            reports.append((p.stem, json_mod.loads(p.read_text())))
+        except (json_mod.JSONDecodeError, OSError) as e:
+            console.print(f"[red]Error reading {p}:[/red] {e}")
+            raise SystemExit(1)
+
+    print_comparison(reports)
 
 
 @main.command()

@@ -28,6 +28,14 @@ class SegmentAnalysis:
     highlights: list[str] = field(default_factory=list)
     improvements: list[str] = field(default_factory=list)
 
+    # Partner-specific scores (optional — only populated when detected)
+    lead_technique: float = 0.0
+    lead_presentation: float = 0.0
+    lead_notes: str = ""
+    follow_technique: float = 0.0
+    follow_presentation: float = 0.0
+    follow_notes: str = ""
+
     # Raw LLM response data
     raw_data: dict = field(default_factory=dict)
 
@@ -65,6 +73,14 @@ class FinalScores:
     extension: float = 0.0
     footwork: float = 0.0
     slot: float = 0.0
+
+    # Partner-specific aggregated scores
+    lead_technique: float = 0.0
+    lead_presentation: float = 0.0
+    lead_notes: str = ""
+    follow_technique: float = 0.0
+    follow_presentation: float = 0.0
+    follow_notes: str = ""
 
     # Aggregated details
     total_off_beat: int = 0
@@ -158,6 +174,28 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         improvements = _collect_top(scoring_segments, "improvements", 3)
         impression = ""
 
+    # Partner-specific scores — use summary if available, else average
+    if summary and summary.lead_technique > 0:
+        lead_tech = summary.lead_technique
+        lead_pres = summary.lead_presentation
+        lead_notes_str = summary.lead_notes
+        follow_tech = summary.follow_technique
+        follow_pres = summary.follow_presentation
+        follow_notes_str = summary.follow_notes
+    else:
+        segs_with_partner = [s for s in scoring_segments if s.lead_technique > 0]
+        if segs_with_partner:
+            n_p = len(segs_with_partner)
+            lead_tech = sum(s.lead_technique for s in segs_with_partner) / n_p
+            lead_pres = sum(s.lead_presentation for s in segs_with_partner) / n_p
+            follow_tech = sum(s.follow_technique for s in segs_with_partner) / n_p
+            follow_pres = sum(s.follow_presentation for s in segs_with_partner) / n_p
+            lead_notes_str = ""
+            follow_notes_str = ""
+        else:
+            lead_tech = lead_pres = follow_tech = follow_pres = 0.0
+            lead_notes_str = follow_notes_str = ""
+
     return FinalScores(
         timing=round(timing, 1),
         technique=round(technique, 1),
@@ -169,6 +207,12 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         extension=round(extension, 1),
         footwork=round(footwork, 1),
         slot=round(slot, 1),
+        lead_technique=round(lead_tech, 1),
+        lead_presentation=round(lead_pres, 1),
+        lead_notes=lead_notes_str,
+        follow_technique=round(follow_tech, 1),
+        follow_presentation=round(follow_pres, 1),
+        follow_notes=follow_notes_str,
         total_off_beat=len(all_off_beat),
         off_beat_moments=all_off_beat,
         all_patterns=all_patterns,
