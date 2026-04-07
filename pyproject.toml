@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wcs-analyzer"
+version = "0.1.0"
+description = "AI-powered West Coast Swing dance video analyzer with WSDC-style scoring"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.40.0",
+    "opencv-python>=4.9.0",
+    "librosa>=0.10.0",
+    "ffmpeg-python>=0.2.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.4.0",
+    "pyright>=1.1.350",
+]
+
+[project.scripts]
+wcs-analyzer = "wcs_analyzer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
