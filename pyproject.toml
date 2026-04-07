@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wcs-analyzer"
-version = "0.1.0"
+version = "0.3.1"
+license = {text = "MIT"}
 description = "AI-powered West Coast Swing dance video analyzer with WSDC-style scoring"
 requires-python = ">=3.10"
 dependencies = [

@@ -6,3 +6,26 @@ __pycache__/
 dist/
 build/
 *.egg
+
+# Environment and secrets
+.env
+.env.*
+*.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+.wcs-analyzer/
+
+# Analysis outputs
+*_report.json
+*_report.csv

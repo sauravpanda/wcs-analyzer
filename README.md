@@ -1,5 +1,9 @@
 # WCS Analyzer
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/sauravpanda/wcs-analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/sauravpanda/wcs-analyzer/actions)
+
 AI-powered West Coast Swing dance video analyzer that evaluates performances according to WSDC competition scoring standards.
 
 Drop in a video of your WCS dancing, get back detailed scores, technique breakdowns, partner-specific feedback, and actionable improvement tips — like having a judge review your practice sessions.
@@ -105,6 +109,7 @@ wcs-analyzer analyze video.mp4 [OPTIONS]
 | `--model` | auto | Model ID (defaults to `gemini-2.5-flash` or `claude-sonnet-4-6`) |
 | `--detail` | `medium` | Analysis granularity: `low`, `medium`, `high` |
 | `--fps` | `3.0` | Frames per second to sample — Claude only (1-30) |
+| `--dancers` | — | Describe which dancers to focus on (for crowded floors) |
 | `--format` | `terminal` | Output format: `terminal`, `json`, `csv` |
 | `-o`, `--output` | — | Save JSON report to a file path |
 | `--no-cache` | — | Force re-analysis, skip cache |
@@ -115,6 +120,9 @@ wcs-analyzer analyze video.mp4 [OPTIONS]
 ```bash
 # Default: Gemini with native video analysis
 wcs-analyzer analyze competition.mp4
+
+# Focus on a specific couple on a crowded floor
+wcs-analyzer analyze competition.mp4 --dancers "lead in blue shirt, follow in red dress"
 
 # Use Claude instead
 wcs-analyzer analyze competition.mp4 --provider claude
@@ -217,7 +225,7 @@ uv sync
 ```bash
 ruff check src/ tests/    # Lint
 pyright src/               # Type check
-pytest tests/ -v           # Tests (69 tests, no API key needed)
+pytest tests/ -v           # Tests (72 tests, no API key needed)
 ```
 
 ### Run all CI checks locally
