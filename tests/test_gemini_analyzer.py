@@ -10,6 +10,7 @@ from wcs_analyzer.gemini_analyzer import (
     _INLINE_LIMIT,
     analyze_dance_gemini,
 )
+from wcs_analyzer.prompts import DANCER_CONTEXT_TEMPLATE, GEMINI_VIDEO_PROMPT
 
 VALID_GEMINI_RESPONSE = json.dumps({
     "timing": {"score": 8.0, "on_beat": True, "off_beat_moments": [], "rhythm_consistency": "Strong", "notes": "Solid timing"},
@@ -104,3 +105,21 @@ class TestAnalyzeDanceGemini:
         results = analyze_dance_gemini(video, model="gemini-2.5-flash", detail="medium")
         assert len(results) == 1
         mock_upload.assert_called_once()
+
+
+class TestDancerContext:
+    def test_dancer_template_formats(self):
+        ctx = DANCER_CONTEXT_TEMPLATE.format(dancer_description="lead in blue, follow in red")
+        assert "lead in blue, follow in red" in ctx
+        assert "DANCER IDENTIFICATION" in ctx
+
+    def test_gemini_prompt_accepts_dancer_context(self):
+        ctx = DANCER_CONTEXT_TEMPLATE.format(dancer_description="couple on the left")
+        prompt = GEMINI_VIDEO_PROMPT.replace("{dancer_context}", ctx + "\n")
+        assert "couple on the left" in prompt
+        assert "Watch and listen" in prompt
+
+    def test_gemini_prompt_empty_dancer_context(self):
+        prompt = GEMINI_VIDEO_PROMPT.replace("{dancer_context}", "")
+        assert "Watch and listen" in prompt
+        assert "{dancer_context}" not in prompt

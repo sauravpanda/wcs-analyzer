@@ -8,7 +8,7 @@ import anthropic
 
 from .audio import AudioFeatures, format_beat_context
 from .exceptions import AnalysisError
-from .prompts import SEGMENT_ANALYSIS_PROMPT, SUMMARY_PROMPT, SYSTEM_PROMPT
+from .prompts import DANCER_CONTEXT_TEMPLATE, SEGMENT_ANALYSIS_PROMPT, SUMMARY_PROMPT, SYSTEM_PROMPT
 from .scoring import SegmentAnalysis
 from .video import FrameData, group_frames_by_phrase
 
@@ -42,6 +42,7 @@ def analyze_dance(
     audio: AudioFeatures,
     model: str = "claude-sonnet-4-6",
     detail: str = "medium",
+    dancers: str | None = None,
 ) -> list[SegmentAnalysis]:
     """Analyze a full dance by breaking it into segments and sending to Claude.
 
@@ -94,8 +95,11 @@ def analyze_dance(
         # Cap frames
         images = phrase["images"][:max_frames]
 
+        dancer_context = ""
+        if dancers:
+            dancer_context = DANCER_CONTEXT_TEMPLATE.format(dancer_description=dancers) + "\n"
         beat_context = format_beat_context(audio, phrase["start_time"], phrase["end_time"])
-        prompt = SEGMENT_ANALYSIS_PROMPT.format(beat_context=beat_context)
+        prompt = SEGMENT_ANALYSIS_PROMPT.format(dancer_context=dancer_context, beat_context=beat_context)
 
         # Build content with interleaved images
         content: list[dict] = []
