@@ -45,7 +45,7 @@ def print_report(scores: FinalScores, video_name: str) -> None:
     header = Table.grid(padding=1)
     header.add_column(justify="center")
     header.add_row(
-        Text(f"WCS Dance Analysis Report", style="bold white"),
+        Text("WCS Dance Analysis Report", style="bold white"),
     )
     header.add_row(Text(video_name, style="dim"))
 

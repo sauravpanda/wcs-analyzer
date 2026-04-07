@@ -52,9 +52,13 @@ def test_grade_assignment():
 
 def test_off_beat_moments_collected():
     seg1 = SegmentAnalysis(
+        start_time=0.0,
+        end_time=4.0,
         off_beat_moments=[{"time": "0:05", "description": "rushed"}],
     )
     seg2 = SegmentAnalysis(
+        start_time=4.0,
+        end_time=8.0,
         off_beat_moments=[{"time": "0:12", "description": "late"}],
     )
     scores = compute_final_scores([seg1, seg2])
@@ -62,8 +66,8 @@ def test_off_beat_moments_collected():
 
 
 def test_patterns_deduplicated():
-    seg1 = SegmentAnalysis(patterns=["Sugar Push", "Whip"])
-    seg2 = SegmentAnalysis(patterns=["sugar push", "Left Side Pass"])
+    seg1 = SegmentAnalysis(start_time=0.0, end_time=4.0, patterns=["Sugar Push", "Whip"])
+    seg2 = SegmentAnalysis(start_time=4.0, end_time=8.0, patterns=["sugar push", "Left Side Pass"])
     scores = compute_final_scores([seg1, seg2])
     assert len(scores.all_patterns) == 3
 

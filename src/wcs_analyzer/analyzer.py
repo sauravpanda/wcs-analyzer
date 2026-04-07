@@ -97,7 +97,7 @@ def analyze_dance(
 def _call_claude(
     client: anthropic.Anthropic,
     model: str,
-    content: list[dict],
+    content: list,  # type: ignore[type-arg]
     max_retries: int = 3,
 ) -> str:
     """Call Claude API with retries for rate limiting."""
@@ -109,7 +109,9 @@ def _call_claude(
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": content}],
             )
-            return response.content[0].text
+            block = response.content[0]
+            assert hasattr(block, "text"), f"Unexpected block type: {type(block)}"
+            return block.text  # type: ignore[union-attr]
         except anthropic.RateLimitError:
             if attempt < max_retries - 1:
                 wait = 2 ** (attempt + 1)

@@ -1,0 +1,2 @@
+[console_scripts]
+wcs-analyzer = wcs_analyzer.cli:main

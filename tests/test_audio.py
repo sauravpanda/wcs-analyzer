@@ -15,7 +15,7 @@ def test_format_beat_context():
 
     assert "100 BPM" in result
     assert "1.0s - 3.5s" in result
-    assert "Beats in segment: 4" in result  # beats at 1.0, 1.5, 2.0, 2.5 (not 5.0)
+    assert "Beats in segment: 5" in result  # beats at 1.0, 1.5, 2.0, 2.5, 3.0 (3.0 < 3.5)
     assert "strong" in result  # 0.9 > 0.7
     assert "light" in result  # 0.3 < 0.4
 
