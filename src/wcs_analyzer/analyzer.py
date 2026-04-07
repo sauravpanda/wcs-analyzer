@@ -194,6 +194,12 @@ def _parse_segment_json(raw: str, start_time: float, end_time: float) -> Segment
         patterns=data.get("patterns_identified", []),
         highlights=data.get("highlights", []),
         improvements=data.get("improvements", []),
+        lead_technique=float(data.get("lead", {}).get("technique_score", 0)),
+        lead_presentation=float(data.get("lead", {}).get("presentation_score", 0)),
+        lead_notes=data.get("lead", {}).get("notes", ""),
+        follow_technique=float(data.get("follow", {}).get("technique_score", 0)),
+        follow_presentation=float(data.get("follow", {}).get("presentation_score", 0)),
+        follow_notes=data.get("follow", {}).get("notes", ""),
         raw_data=data,
     )
 

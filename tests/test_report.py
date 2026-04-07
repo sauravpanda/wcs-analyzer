@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from wcs_analyzer.report import _score_bar, _score_color, _format_time, save_report_json
+from wcs_analyzer.report import _score_bar, _score_color, _format_time, _trend, save_report_json, save_report_csv
 from wcs_analyzer.scoring import FinalScores, SegmentAnalysis
 
 
@@ -75,3 +75,40 @@ class TestSaveReportJson:
         assert data["scores"]["grade"] == "B-"
         assert len(data["segments"]) == 1
         assert data["patterns"] == ["Sugar Push"]
+        assert "partner_breakdown" in data
+        assert "lead" in data["partner_breakdown"]
+        assert "follow" in data["partner_breakdown"]
+
+
+class TestTrend:
+    def test_improvement(self):
+        result = _trend(8.0, 6.0)
+        assert "\u2191" in result  # up arrow
+
+    def test_regression(self):
+        result = _trend(5.0, 7.0)
+        assert "\u2193" in result  # down arrow
+
+    def test_stable(self):
+        result = _trend(7.0, 7.2)
+        assert "\u2192" in result  # right arrow
+
+
+class TestSaveReportCsv:
+    def test_csv_has_expected_rows(self, tmp_path: Path):
+        scores = FinalScores(
+            timing=7.5, technique=6.0, teamwork=8.0, presentation=7.0,
+            overall=7.1, grade="B-",
+            posture=7.0, extension=5.5, footwork=6.5, slot=6.0,
+            segments=[
+                SegmentAnalysis(start_time=0.0, end_time=4.0, timing_score=7.5,
+                                technique_score=6.0, teamwork_score=8.0, presentation_score=7.0),
+            ],
+        )
+        out = tmp_path / "report.csv"
+        save_report_csv(scores, out)
+
+        content = out.read_text()
+        assert "Overall" in content
+        assert "Timing" in content
+        assert "7.5" in content

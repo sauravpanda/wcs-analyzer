@@ -87,3 +87,47 @@ def test_summary_segment_used_for_scores():
     # Should use summary scores, not seg1
     assert scores.timing == 8.0
     assert scores.teamwork == 9.0
+
+
+def test_partner_scores_from_summary():
+    """Partner scores should be taken from summary when available."""
+    seg1 = SegmentAnalysis(
+        start_time=0.0, end_time=4.0,
+        lead_technique=6.0, lead_presentation=5.0,
+        follow_technique=7.0, follow_presentation=8.0,
+    )
+    summary = SegmentAnalysis(
+        start_time=0.0, end_time=8.0,
+        lead_technique=8.0, lead_presentation=7.0, lead_notes="Strong leads",
+        follow_technique=9.0, follow_presentation=8.5, follow_notes="Great follow",
+        raw_data={"overall_impression": "Good"},
+    )
+    scores = compute_final_scores([seg1, summary])
+    assert scores.lead_technique == 8.0
+    assert scores.follow_technique == 9.0
+    assert scores.lead_notes == "Strong leads"
+
+
+def test_partner_scores_averaged_without_summary():
+    """When no summary, partner scores should average across segments."""
+    seg1 = SegmentAnalysis(
+        start_time=0.0, end_time=4.0,
+        lead_technique=6.0, lead_presentation=5.0,
+        follow_technique=8.0, follow_presentation=7.0,
+    )
+    seg2 = SegmentAnalysis(
+        start_time=4.0, end_time=8.0,
+        lead_technique=8.0, lead_presentation=7.0,
+        follow_technique=6.0, follow_presentation=9.0,
+    )
+    scores = compute_final_scores([seg1, seg2])
+    assert scores.lead_technique == 7.0  # avg of 6 and 8
+    assert scores.follow_presentation == 8.0  # avg of 7 and 9
+
+
+def test_no_partner_data_zeros():
+    """When no partner data, scores should be 0."""
+    seg = SegmentAnalysis(start_time=0.0, end_time=4.0)
+    scores = compute_final_scores([seg])
+    assert scores.lead_technique == 0.0
+    assert scores.follow_technique == 0.0
