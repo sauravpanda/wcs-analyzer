@@ -9,7 +9,7 @@ from google import genai
 from google.genai import types
 
 from .exceptions import AnalysisError
-from .prompts import GEMINI_VIDEO_PROMPT, SYSTEM_PROMPT
+from .prompts import DANCER_CONTEXT_TEMPLATE, GEMINI_VIDEO_PROMPT, SYSTEM_PROMPT
 from .scoring import SegmentAnalysis
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,7 @@ def analyze_dance_gemini(
     video_path: Path,
     model: str = "gemini-2.5-flash",
     detail: str = "medium",
+    dancers: str | None = None,
 ) -> list[SegmentAnalysis]:
     """Analyze a dance video using Gemini's native video understanding.
 
@@ -35,6 +36,7 @@ def analyze_dance_gemini(
         video_path: Path to the video file.
         model: Gemini model ID.
         detail: Analysis detail level (low/medium/high).
+        dancers: Optional description of which dancers to focus on.
 
     Returns:
         List containing a single SegmentAnalysis covering the full video.
@@ -57,7 +59,10 @@ def analyze_dance_gemini(
     else:
         video_part = _inline_video(video_path, fps)
 
-    prompt = GEMINI_VIDEO_PROMPT
+    dancer_context = ""
+    if dancers:
+        dancer_context = DANCER_CONTEXT_TEMPLATE.format(dancer_description=dancers) + "\n"
+    prompt = GEMINI_VIDEO_PROMPT.replace("{dancer_context}", dancer_context)
     logger.info(
         "Sending video to Gemini (%s, %d fps, %s resolution)",
         model, fps, detail,

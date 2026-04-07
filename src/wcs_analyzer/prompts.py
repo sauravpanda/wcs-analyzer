@@ -44,13 +44,22 @@ Score each category from 1 to 10:
 - 10: Exceptional, professional quality
 
 Be specific and constructive. Reference exact moments when possible. \
-Note both strengths and areas for improvement.\
+Note both strengths and areas for improvement.
+
+IMPORTANT: If the video contains multiple couples or bystanders, focus \
+ONLY on the specified dancers. Ignore all other people in the frame.\
+"""
+
+DANCER_CONTEXT_TEMPLATE = """\
+DANCER IDENTIFICATION: {dancer_description}
+Focus your analysis ONLY on these dancers. There may be other people \
+visible in the video (other couples, spectators, judges) — ignore them entirely.
 """
 
 SEGMENT_ANALYSIS_PROMPT = """\
 Analyze this segment of a West Coast Swing dance video.
 
-{beat_context}
+{dancer_context}{beat_context}
 
 The frames below are sequential images from this segment of the dance. \
 Examine the dancer(s) carefully for timing, technique, teamwork, and presentation.
@@ -106,6 +115,7 @@ GEMINI_VIDEO_PROMPT = """\
 Watch and listen to this entire West Coast Swing dance video carefully. \
 Pay attention to both the visual movement AND the music/audio to judge timing accuracy.
 
+{dancer_context}\
 Analyze the full performance and provide a comprehensive evaluation. \
 Since you can hear the music, evaluate whether the dancers are truly on beat — \
 listen for anchors landing on the downbeat, triples matching the rhythm, \
