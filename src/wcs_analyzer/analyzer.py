@@ -40,6 +40,7 @@ def analyze_dance(
 
     # Group frames into 8-count phrases
     phrases = group_frames_by_phrase(frames, beats_per_phrase=8, bpm=audio.bpm)
+    logger.info("Grouped %d frames into %d phrases for analysis", len(frames.images), len(phrases))
 
     # Adjust granularity based on detail level
     if detail == "low":
@@ -66,7 +67,8 @@ def analyze_dance(
     # Analyze each segment
     segment_results: list[SegmentAnalysis] = []
 
-    for phrase in phrases:
+    for i, phrase in enumerate(phrases):
+        logger.debug("Analyzing phrase %d/%d (%.1f-%.1fs)", i + 1, len(phrases), phrase["start_time"], phrase["end_time"])
         # Cap frames
         images = phrase["images"][:MAX_FRAMES_PER_CALL]
 
@@ -120,6 +122,7 @@ def _call_claude(
         except anthropic.RateLimitError:
             if attempt < max_retries - 1:
                 wait = 2 ** (attempt + 1)
+                logger.warning("Rate limited by API, retrying in %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
                 time.sleep(wait)
             else:
                 raise

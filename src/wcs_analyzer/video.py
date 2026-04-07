@@ -1,12 +1,15 @@
 """Video frame extraction and sampling."""
 
 import base64
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
 
 from .exceptions import VideoProcessingError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -33,6 +36,7 @@ def extract_frames(video_path: Path, fps: float = 3.0, max_dimension: int = 768)
     Returns:
         FrameData with base64-encoded frames and timestamps.
     """
+    logger.debug("Opening video: %s", video_path)
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise VideoProcessingError(f"Cannot open video: {video_path}")
@@ -80,6 +84,10 @@ def extract_frames(video_path: Path, fps: float = 3.0, max_dimension: int = 768)
         frame_idx += 1
 
     cap.release()
+    logger.info(
+        "Extracted %d frames from %s (%.1fs, %dx%d, sampled at %.1f fps)",
+        len(data.images), video_path, duration, width, height, fps,
+    )
     return data
 
 
