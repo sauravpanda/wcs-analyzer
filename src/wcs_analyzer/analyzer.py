@@ -1,14 +1,18 @@
 """LLM orchestration — send frames to Claude for WCS analysis."""
 
 import json
+import logging
 import time
 
 import anthropic
 
 from .audio import AudioFeatures, format_beat_context
+from .exceptions import AnalysisError
 from .prompts import SEGMENT_ANALYSIS_PROMPT, SUMMARY_PROMPT, SYSTEM_PROMPT
 from .scoring import SegmentAnalysis
 from .video import FrameData, group_frames_by_phrase
+
+logger = logging.getLogger(__name__)
 
 
 # Max frames per API call to stay within token limits
@@ -110,7 +114,8 @@ def _call_claude(
                 messages=[{"role": "user", "content": content}],
             )
             block = response.content[0]
-            assert hasattr(block, "text"), f"Unexpected block type: {type(block)}"
+            if not hasattr(block, "text"):
+                raise AnalysisError(f"Unexpected response block type: {type(block)}")
             return block.text  # type: ignore[union-attr]
         except anthropic.RateLimitError:
             if attempt < max_retries - 1:
@@ -134,7 +139,11 @@ def _parse_segment_json(raw: str, start_time: float, end_time: float) -> Segment
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
-        # Fallback: return a minimal result
+        logger.warning(
+            "Failed to parse Claude response as JSON for segment %.1f-%.1fs. "
+            "Using default scores. Raw response: %s",
+            start_time, end_time, raw[:200],
+        )
         return SegmentAnalysis(
             start_time=start_time,
             end_time=end_time,

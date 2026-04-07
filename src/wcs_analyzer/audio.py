@@ -1,5 +1,6 @@
 """Audio extraction and beat detection."""
 
+import logging
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -7,6 +8,14 @@ from pathlib import Path
 
 import librosa
 import numpy as np
+
+from .exceptions import AudioProcessingError
+
+logger = logging.getLogger(__name__)
+
+# Expected BPM range for WCS music
+WCS_BPM_MIN = 60
+WCS_BPM_MAX = 200
 
 
 @dataclass
@@ -20,6 +29,30 @@ class AudioFeatures:
     downbeat_times: list[float] = field(default_factory=list)  # phrase starts
 
 
+def _check_audio_stream(video_path: Path) -> bool:
+    """Check if the video file contains an audio stream."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "a",
+                "-show_entries", "stream=codec_type",
+                "-of", "csv=p=0",
+                str(video_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return bool(result.stdout.strip())
+    except FileNotFoundError:
+        raise AudioProcessingError(
+            "ffprobe not found. Please install ffmpeg: https://ffmpeg.org/download.html"
+        )
+    except subprocess.TimeoutExpired:
+        raise AudioProcessingError(f"Timed out checking audio streams in {video_path}")
+
+
 def extract_audio_features(video_path: Path) -> AudioFeatures:
     """Extract audio from video and detect beats.
 
@@ -30,29 +63,62 @@ def extract_audio_features(video_path: Path) -> AudioFeatures:
 
     Returns:
         AudioFeatures with BPM, beat timestamps, and downbeats.
+
+    Raises:
+        AudioProcessingError: If audio extraction or processing fails.
     """
+    if not _check_audio_stream(video_path):
+        logger.warning("No audio stream found in %s — returning empty audio features", video_path)
+        return AudioFeatures()
+
     # Extract audio to temp WAV file
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp_path = tmp.name
 
     try:
-        subprocess.run(
-            [
-                "ffmpeg", "-i", str(video_path),
-                "-vn", "-acodec", "pcm_s16le",
-                "-ar", "22050", "-ac", "1",
-                "-y", tmp_path,
-            ],
-            capture_output=True,
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg", "-i", str(video_path),
+                    "-vn", "-acodec", "pcm_s16le",
+                    "-ar", "22050", "-ac", "1",
+                    "-y", tmp_path,
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=120,
+            )
+        except FileNotFoundError:
+            raise AudioProcessingError(
+                "ffmpeg not found. Please install ffmpeg: https://ffmpeg.org/download.html"
+            )
+        except subprocess.CalledProcessError as e:
+            raise AudioProcessingError(
+                f"ffmpeg failed to extract audio: {e.stderr.strip()}"
+            )
+        except subprocess.TimeoutExpired:
+            raise AudioProcessingError(
+                f"ffmpeg timed out extracting audio from {video_path}"
+            )
 
         # Load audio
         y, sr = librosa.load(tmp_path, sr=22050)
+
+        if len(y) == 0:
+            logger.warning("Audio track is empty in %s", video_path)
+            return AudioFeatures()
+
         duration = librosa.get_duration(y=y, sr=sr)
 
         # Beat detection
         tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+
+        if len(beat_frames) == 0:
+            logger.warning("No beats detected in %s — audio may be too quiet or non-musical", video_path)
+            bpm = float(np.atleast_1d(tempo)[0])
+            return AudioFeatures(bpm=bpm, duration=duration)
+
         beat_times = librosa.frames_to_time(beat_frames, sr=sr).tolist()
 
         # Get beat strengths from onset envelope
@@ -75,6 +141,13 @@ def extract_audio_features(video_path: Path) -> AudioFeatures:
 
         # Handle tempo as scalar
         bpm = float(np.atleast_1d(tempo)[0])
+
+        if bpm < WCS_BPM_MIN or bpm > WCS_BPM_MAX:
+            logger.warning(
+                "Detected BPM (%.0f) is outside typical WCS range (%d-%d). "
+                "The music may not be West Coast Swing.",
+                bpm, WCS_BPM_MIN, WCS_BPM_MAX,
+            )
 
         return AudioFeatures(
             bpm=bpm,

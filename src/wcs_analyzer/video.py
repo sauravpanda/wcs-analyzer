@@ -6,6 +6,8 @@ from pathlib import Path
 
 import cv2
 
+from .exceptions import VideoProcessingError
+
 
 @dataclass
 class FrameData:
@@ -33,7 +35,7 @@ def extract_frames(video_path: Path, fps: float = 3.0, max_dimension: int = 768)
     """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
-        raise RuntimeError(f"Cannot open video: {video_path}")
+        raise VideoProcessingError(f"Cannot open video: {video_path}")
 
     original_fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
