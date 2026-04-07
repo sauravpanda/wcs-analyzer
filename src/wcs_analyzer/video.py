@@ -11,6 +11,10 @@ from .exceptions import VideoProcessingError
 
 logger = logging.getLogger(__name__)
 
+# Safety limit: max total frames to extract. At ~1600 tokens each, 500
+# frames ≈ 800k tokens which far exceeds a single call but caps memory.
+_MAX_TOTAL_FRAMES = 500
+
 
 @dataclass
 class FrameData:
@@ -80,6 +84,13 @@ def extract_frames(video_path: Path, fps: float = 3.0, max_dimension: int = 768)
 
             data.images.append(b64)
             data.timestamps.append(frame_idx / original_fps)
+
+            if len(data.images) >= _MAX_TOTAL_FRAMES:
+                logger.warning(
+                    "Reached max frame limit (%d). Consider lowering --fps or trimming the video.",
+                    _MAX_TOTAL_FRAMES,
+                )
+                break
 
         frame_idx += 1
 

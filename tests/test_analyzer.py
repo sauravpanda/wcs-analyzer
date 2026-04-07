@@ -5,7 +5,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wcs_analyzer.analyzer import _parse_segment_json, _call_claude, analyze_dance
+from wcs_analyzer.analyzer import (
+    _parse_segment_json, _call_claude, _effective_max_frames, analyze_dance,
+    MAX_FRAMES_PER_CALL, _IMAGE_TOKEN_BUDGET, _TOKENS_PER_IMAGE_ESTIMATE,
+)
 from wcs_analyzer.audio import AudioFeatures
 from wcs_analyzer.exceptions import AnalysisError
 from wcs_analyzer.video import FrameData
@@ -126,6 +129,16 @@ class TestCallClaude:
 
         with pytest.raises(anth.RateLimitError):
             _call_claude(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "hi"}], max_retries=3)
+
+
+class TestTokenAwareness:
+    def test_effective_max_frames_respects_budget(self):
+        max_f = _effective_max_frames()
+        assert max_f <= MAX_FRAMES_PER_CALL
+        assert max_f <= _IMAGE_TOKEN_BUDGET // _TOKENS_PER_IMAGE_ESTIMATE
+
+    def test_effective_max_frames_positive(self):
+        assert _effective_max_frames() > 0
 
 
 class TestAnalyzeDance:
