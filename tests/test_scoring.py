@@ -1,7 +1,6 @@
 """Tests for the scoring engine."""
 
 from wcs_analyzer.scoring import (
-    FinalScores,
     SegmentAnalysis,
     compute_final_scores,
     WEIGHTS,

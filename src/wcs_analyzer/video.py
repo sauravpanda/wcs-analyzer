@@ -1,10 +1,19 @@
 """Video frame extraction and sampling."""
 
 import base64
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
+
+from .exceptions import VideoProcessingError
+
+logger = logging.getLogger(__name__)
+
+# Safety limit: max total frames to extract. At ~1600 tokens each, 500
+# frames ≈ 800k tokens which far exceeds a single call but caps memory.
+_MAX_TOTAL_FRAMES = 500
 
 
 @dataclass
@@ -31,9 +40,10 @@ def extract_frames(video_path: Path, fps: float = 3.0, max_dimension: int = 768)
     Returns:
         FrameData with base64-encoded frames and timestamps.
     """
+    logger.debug("Opening video: %s", video_path)
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
-        raise RuntimeError(f"Cannot open video: {video_path}")
+        raise VideoProcessingError(f"Cannot open video: {video_path}")
 
     original_fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -75,9 +85,20 @@ def extract_frames(video_path: Path, fps: float = 3.0, max_dimension: int = 768)
             data.images.append(b64)
             data.timestamps.append(frame_idx / original_fps)
 
+            if len(data.images) >= _MAX_TOTAL_FRAMES:
+                logger.warning(
+                    "Reached max frame limit (%d). Consider lowering --fps or trimming the video.",
+                    _MAX_TOTAL_FRAMES,
+                )
+                break
+
         frame_idx += 1
 
     cap.release()
+    logger.info(
+        "Extracted %d frames from %s (%.1fs, %dx%d, sampled at %.1f fps)",
+        len(data.images), video_path, duration, width, height, fps,
+    )
     return data
 
 

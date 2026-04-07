@@ -1,18 +1,40 @@
 """LLM orchestration — send frames to Claude for WCS analysis."""
 
 import json
+import logging
 import time
 
 import anthropic
 
 from .audio import AudioFeatures, format_beat_context
+from .exceptions import AnalysisError
 from .prompts import SEGMENT_ANALYSIS_PROMPT, SUMMARY_PROMPT, SYSTEM_PROMPT
 from .scoring import SegmentAnalysis
 from .video import FrameData, group_frames_by_phrase
 
+logger = logging.getLogger(__name__)
+
 
 # Max frames per API call to stay within token limits
 MAX_FRAMES_PER_CALL = 16
+
+# Approximate token budget for images in a single API call.
+# Claude charges ~1600 tokens per 768px image. We leave room for the
+# system prompt (~800 tokens), segment prompt (~400 tokens), and
+# response (4096 tokens).  With a 200k input context, a safe image
+# budget is ~180k tokens.
+_TOKENS_PER_IMAGE_ESTIMATE = 1600
+_IMAGE_TOKEN_BUDGET = 180_000
+
+# Maximum characters for the summary prompt's segment_results block.
+# Keeps the summary well within context limits for long videos.
+_MAX_SUMMARY_CHARS = 100_000
+
+
+def _effective_max_frames() -> int:
+    """Compute effective max frames per call based on token budget."""
+    max_by_budget = _IMAGE_TOKEN_BUDGET // _TOKENS_PER_IMAGE_ESTIMATE
+    return min(MAX_FRAMES_PER_CALL, max_by_budget)
 
 
 def analyze_dance(
@@ -33,9 +55,14 @@ def analyze_dance(
         List of SegmentAnalysis results, one per segment plus a final summary.
     """
     client = anthropic.Anthropic()
+    max_frames = _effective_max_frames()
 
     # Group frames into 8-count phrases
     phrases = group_frames_by_phrase(frames, beats_per_phrase=8, bpm=audio.bpm)
+    logger.info(
+        "Grouped %d frames into %d phrases for analysis (max %d frames/call)",
+        len(frames.images), len(phrases), max_frames,
+    )
 
     # Adjust granularity based on detail level
     if detail == "low":
@@ -44,7 +71,7 @@ def analyze_dance(
         for i in range(0, len(phrases), 2):
             group = phrases[i:i + 2]
             merged.append({
-                "images": [img for p in group for img in p["images"]][:MAX_FRAMES_PER_CALL],
+                "images": [img for p in group for img in p["images"]][:max_frames],
                 "timestamps": [t for p in group for t in p["timestamps"]],
                 "phrase_index": group[0]["phrase_index"],
                 "start_time": group[0]["start_time"],
@@ -54,17 +81,18 @@ def analyze_dance(
     elif detail == "high":
         # Keep all phrases, but cap frames per phrase
         for p in phrases:
-            if len(p["images"]) > MAX_FRAMES_PER_CALL:
-                step = len(p["images"]) // MAX_FRAMES_PER_CALL
-                p["images"] = p["images"][::step][:MAX_FRAMES_PER_CALL]
-                p["timestamps"] = p["timestamps"][::step][:MAX_FRAMES_PER_CALL]
+            if len(p["images"]) > max_frames:
+                step = len(p["images"]) // max_frames
+                p["images"] = p["images"][::step][:max_frames]
+                p["timestamps"] = p["timestamps"][::step][:max_frames]
 
     # Analyze each segment
     segment_results: list[SegmentAnalysis] = []
 
-    for phrase in phrases:
+    for i, phrase in enumerate(phrases):
+        logger.debug("Analyzing phrase %d/%d (%.1f-%.1fs)", i + 1, len(phrases), phrase["start_time"], phrase["end_time"])
         # Cap frames
-        images = phrase["images"][:MAX_FRAMES_PER_CALL]
+        images = phrase["images"][:max_frames]
 
         beat_context = format_beat_context(audio, phrase["start_time"], phrase["end_time"])
         prompt = SEGMENT_ANALYSIS_PROMPT.format(beat_context=beat_context)
@@ -110,11 +138,13 @@ def _call_claude(
                 messages=[{"role": "user", "content": content}],
             )
             block = response.content[0]
-            assert hasattr(block, "text"), f"Unexpected block type: {type(block)}"
+            if not hasattr(block, "text"):
+                raise AnalysisError(f"Unexpected response block type: {type(block)}")
             return block.text  # type: ignore[union-attr]
         except anthropic.RateLimitError:
             if attempt < max_retries - 1:
                 wait = 2 ** (attempt + 1)
+                logger.warning("Rate limited by API, retrying in %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
                 time.sleep(wait)
             else:
                 raise
@@ -134,7 +164,11 @@ def _parse_segment_json(raw: str, start_time: float, end_time: float) -> Segment
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
-        # Fallback: return a minimal result
+        logger.warning(
+            "Failed to parse Claude response as JSON for segment %.1f-%.1fs. "
+            "Using default scores. Raw response: %s",
+            start_time, end_time, raw[:200],
+        )
         return SegmentAnalysis(
             start_time=start_time,
             end_time=end_time,
@@ -183,11 +217,19 @@ def _get_summary(
             + (f"\nImprovements: {'; '.join(seg.improvements)}" if seg.improvements else "")
         )
 
+    combined = "\n\n".join(segment_texts)
+    if len(combined) > _MAX_SUMMARY_CHARS:
+        logger.warning(
+            "Segment results too long for summary (%d chars), truncating to %d",
+            len(combined), _MAX_SUMMARY_CHARS,
+        )
+        combined = combined[:_MAX_SUMMARY_CHARS] + "\n\n[... truncated for length]"
+
     prompt = SUMMARY_PROMPT.format(
         num_segments=len(segments),
         duration=audio.duration,
         bpm=audio.bpm,
-        segment_results="\n\n".join(segment_texts),
+        segment_results=combined,
     )
 
     result = _call_claude(client, model, [{"type": "text", "text": prompt}])
