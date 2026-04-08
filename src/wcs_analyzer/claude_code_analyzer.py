@@ -119,23 +119,19 @@ def analyze_dance_claude_code(
     """
     claude_path = _check_claude_cli()
 
-    # Extract frames to temp directory
-    logger.info("Extracting frames for Claude Code analysis...")
-    frames = extract_frames(video_path, fps=fps)
+    # FPS per detail level — controls how many frames get analyzed
+    detail_fps = {"low": 0.5, "medium": 1.0, "high": 2.0}
+    analysis_fps = detail_fps.get(detail, 1.0)
+
+    # Extract frames at the analysis FPS directly
+    logger.info("Extracting frames at %.1f fps for Claude Code analysis...", analysis_fps)
+    frames = extract_frames(video_path, fps=analysis_fps)
 
     if not frames.images:
         raise AnalysisError("No frames extracted from video")
 
-    # Select frames based on detail level
-    if detail == "low":
-        step = max(1, len(frames.images) // 20)
-    elif detail == "high":
-        step = max(1, len(frames.images) // 50)
-    else:
-        step = max(1, len(frames.images) // 30)
-
-    selected = frames.images[::step][:50]  # cap at 50 frames
-    logger.info("Selected %d frames for analysis", len(selected))
+    selected = frames.images
+    logger.info("Extracted %d frames (%.0fs video at %.1f fps)", len(selected), frames.duration, analysis_fps)
 
     # Save frames to temp directory
     with tempfile.TemporaryDirectory(prefix="wcs_") as tmp_dir:
