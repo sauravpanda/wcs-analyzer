@@ -181,7 +181,6 @@ def _call_claude_cli(claude_path: str, prompt: str, timeout: int = 300) -> dict:
         "--json-schema", _ANALYSIS_SCHEMA,
         "--allowedTools", "Read",
         "--max-turns", "5",
-        "--bare",
     ]
 
     try:
@@ -199,15 +198,16 @@ def _call_claude_cli(claude_path: str, prompt: str, timeout: int = 300) -> dict:
     except FileNotFoundError:
         raise AnalysisError("Claude Code CLI not found")
 
-    if proc.returncode != 0:
-        stderr = proc.stderr.strip()[:500] if proc.stderr else "unknown error"
-        raise AnalysisError(f"Claude Code CLI failed: {stderr}")
-
     # Parse the outer JSON envelope from claude --output-format json
     try:
-        envelope = json.loads(proc.stdout)
+        envelope = json.loads(proc.stdout) if proc.stdout else {}
     except json.JSONDecodeError:
-        raise AnalysisError(f"Failed to parse Claude Code output: {proc.stdout[:300]}")
+        envelope = {}
+
+    # Check for errors in the envelope or return code
+    if envelope.get("is_error") or proc.returncode != 0:
+        error_msg = envelope.get("result", "") or proc.stderr or "unknown error"
+        raise AnalysisError(f"Claude Code CLI failed: {error_msg}")
 
     # The structured output is in the "result" field
     result_text = envelope.get("result", "")
