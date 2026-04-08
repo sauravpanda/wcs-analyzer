@@ -48,31 +48,45 @@ _DEFAULT_MODELS = {
 
 
 @main.command()
-@click.argument("video_path", type=click.Path(exists=True, path_type=Path))
+@click.argument("video_paths", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path))
 @click.option("--provider", type=click.Choice(["gemini", "claude", "claude-code"]), default="gemini", help="AI provider: gemini (native video), claude (API), claude-code (uses local CLI).")
 @click.option("--model", default=None, help="Model to use (defaults to provider's best).")
 @click.option("--detail", type=click.Choice(["low", "medium", "high"]), default="medium", help="Analysis detail level.")
-@click.option("--output", "-o", type=click.Path(path_type=Path), default=None, help="Save report as JSON to this path.")
+@click.option("--output", "-o", type=click.Path(path_type=Path), default=None, help="Save report as JSON to this path (single video only).")
 @click.option("--fps", type=float, default=3.0, callback=_validate_fps, help="Frames per second to sample — Claude only (0-30).")
 @click.option("--dancers", default=None, help='Describe which dancers to analyze, e.g. "lead in blue shirt, follow in red dress".')
 @click.option("--no-cache", is_flag=True, default=False, help="Skip cache and force re-analysis.")
 @click.option("--format", "fmt", type=click.Choice(["terminal", "json", "csv"]), default="terminal", help="Output format.")
+@click.option("--parallel", "-j", type=int, default=1, help="Number of videos to analyze in parallel.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging output.")
-def analyze(video_path: Path, provider: str, model: str | None, detail: str, output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str, verbose: bool):
-    """Analyze a West Coast Swing dance video.
+def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, detail: str, output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int, verbose: bool):
+    """Analyze one or more West Coast Swing dance videos.
 
-    Uses Gemini (default) for native video+audio analysis, or Claude as a
-    frame-based fallback. Gemini can see motion and hear the music directly.
+    Pass multiple video files to analyze them all. Use -j to run in parallel.
 
-    Use --dancers to specify which couple to focus on when multiple people
-    are visible (e.g. competition floors, social dances).
+    \b
+    Examples:
+      wcs-analyzer analyze video.mp4
+      wcs-analyzer analyze *.MOV -j 3 --provider claude-code
+      wcs-analyzer analyze vid1.mp4 vid2.mp4 --format json
     """
+    _setup_logging(verbose)
+    model = model or _DEFAULT_MODELS[provider]
+
+    if len(video_paths) == 1:
+        _analyze_single(video_paths[0], provider, model, detail, output, fps, dancers, no_cache, fmt)
+    else:
+        _analyze_batch(video_paths, provider, model, detail, fps, dancers, no_cache, fmt, parallel)
+
+
+def _analyze_single(
+    video_path: Path, provider: str, model: str, detail: str,
+    output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str,
+) -> None:
+    """Analyze a single video with full reporting."""
     from .scoring import compute_final_scores
     from .report import print_report, save_report_json, save_report_csv
     from .cache import get_cached_result, save_to_cache, segments_to_dicts, dicts_to_segments
-
-    _setup_logging(verbose)
-    model = model or _DEFAULT_MODELS[provider]
 
     console.print(f"\n[bold]WCS Analyzer[/bold] — analyzing [cyan]{video_path.name}[/cyan]")
     console.print(f"  Provider: [bold]{provider}[/bold] ({model})")
@@ -81,7 +95,6 @@ def analyze(video_path: Path, provider: str, model: str | None, detail: str, out
     console.print()
 
     try:
-        # Check cache first — include dancer description in key
         cache_key_model = f"{provider}:{model}:{dancers or ''}"
         cached = None
         if not no_cache:
@@ -97,7 +110,6 @@ def analyze(video_path: Path, provider: str, model: str | None, detail: str, out
         else:
             segments = _analyze_with_claude(video_path, model, detail, fps, dancers)
 
-        # Save to cache
         if cached is None and not no_cache:
             save_to_cache(video_path, fps, detail, cache_key_model, segments_to_dicts(segments))
 
@@ -120,6 +132,95 @@ def analyze(video_path: Path, provider: str, model: str | None, detail: str, out
     except WCSAnalyzerError as e:
         console.print(f"\n  [red]Error:[/red] {e}")
         raise SystemExit(1)
+
+
+def _analyze_batch(
+    video_paths: tuple[Path, ...], provider: str, model: str, detail: str,
+    fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int,
+) -> None:
+    """Analyze multiple videos, optionally in parallel."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from .scoring import compute_final_scores
+    from .report import print_report, save_report_json, save_report_csv
+    from .cache import get_cached_result, save_to_cache, segments_to_dicts, dicts_to_segments
+
+    console.print(f"\n[bold]WCS Analyzer[/bold] — batch analysis of [cyan]{len(video_paths)}[/cyan] videos")
+    console.print(f"  Provider: [bold]{provider}[/bold] ({model})")
+    if parallel > 1:
+        console.print(f"  Parallel: [green]{parallel}[/green] concurrent")
+    if dancers:
+        console.print(f"  Dancers: [cyan]{dancers}[/cyan]")
+    console.print()
+
+    cache_key_model = f"{provider}:{model}:{dancers or ''}"
+
+    def _process_one(video_path: Path) -> tuple[Path, object | None, str | None]:
+        """Process a single video, return (path, scores, error)."""
+        try:
+            cached = None
+            if not no_cache:
+                cached = get_cached_result(video_path, fps, detail, cache_key_model)
+
+            if cached is not None:
+                segments = dicts_to_segments(cached)
+            elif provider == "gemini":
+                segments = _analyze_with_gemini(video_path, model, detail, dancers)
+            elif provider == "claude-code":
+                segments = _analyze_with_claude_code(video_path, detail, fps, dancers)
+            else:
+                segments = _analyze_with_claude(video_path, model, detail, fps, dancers)
+
+            if cached is None and not no_cache:
+                save_to_cache(video_path, fps, detail, cache_key_model, segments_to_dicts(segments))
+
+            scores = compute_final_scores(segments)
+            return (video_path, scores, None)
+        except Exception as e:
+            return (video_path, None, str(e))
+
+    results = []
+    workers = min(parallel, len(video_paths))
+
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(_process_one, vp): vp for vp in video_paths}
+            for future in as_completed(futures):
+                results.append(future.result())
+    else:
+        for vp in video_paths:
+            console.print(f"  Analyzing [cyan]{vp.name}[/cyan]...")
+            results.append(_process_one(vp))
+
+    # Sort by original order
+    path_order = {vp: i for i, vp in enumerate(video_paths)}
+    results.sort(key=lambda r: path_order[r[0]])
+
+    # Print results
+    console.print(f"\n{'=' * 60}")
+    errors = []
+    for video_path, scores, error in results:
+        if error:
+            console.print(f"\n  [red]Failed:[/red] {video_path.name} — {error}")
+            errors.append(video_path.name)
+            continue
+
+        if fmt == "csv":
+            out_path = Path(video_path.stem + "_report.csv")
+            save_report_csv(scores, out_path)  # type: ignore[arg-type]
+            console.print(f"\n  [cyan]{video_path.name}[/cyan] → {out_path}")
+        elif fmt == "json":
+            out_path = Path(video_path.stem + "_report.json")
+            save_report_json(scores, out_path)  # type: ignore[arg-type]
+            console.print(f"\n  [cyan]{video_path.name}[/cyan] → {out_path}")
+        else:
+            print_report(scores, video_path.name)  # type: ignore[arg-type]
+
+    # Summary
+    console.print(f"\n{'=' * 60}")
+    ok = len(video_paths) - len(errors)
+    console.print(f"  [bold]Done:[/bold] {ok}/{len(video_paths)} videos analyzed")
+    if errors:
+        console.print(f"  [red]Failed:[/red] {', '.join(errors)}")
 
 
 def _analyze_with_claude_code(video_path: Path, detail: str, fps: float = 3.0, dancers: str | None = None) -> list:
