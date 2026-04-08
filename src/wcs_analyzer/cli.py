@@ -43,12 +43,13 @@ def main():
 _DEFAULT_MODELS = {
     "gemini": "gemini-2.5-flash",
     "claude": "claude-sonnet-4-6",
+    "claude-code": "claude-sonnet-4-6",
 }
 
 
 @main.command()
 @click.argument("video_path", type=click.Path(exists=True, path_type=Path))
-@click.option("--provider", type=click.Choice(["gemini", "claude"]), default="gemini", help="AI provider (gemini uses native video+audio).")
+@click.option("--provider", type=click.Choice(["gemini", "claude", "claude-code"]), default="gemini", help="AI provider: gemini (native video), claude (API), claude-code (uses local CLI).")
 @click.option("--model", default=None, help="Model to use (defaults to provider's best).")
 @click.option("--detail", type=click.Choice(["low", "medium", "high"]), default="medium", help="Analysis detail level.")
 @click.option("--output", "-o", type=click.Path(path_type=Path), default=None, help="Save report as JSON to this path.")
@@ -91,6 +92,8 @@ def analyze(video_path: Path, provider: str, model: str | None, detail: str, out
             segments = dicts_to_segments(cached)
         elif provider == "gemini":
             segments = _analyze_with_gemini(video_path, model, detail, dancers)
+        elif provider == "claude-code":
+            segments = _analyze_with_claude_code(video_path, detail, fps, dancers)
         else:
             segments = _analyze_with_claude(video_path, model, detail, fps, dancers)
 
@@ -117,6 +120,16 @@ def analyze(video_path: Path, provider: str, model: str | None, detail: str, out
     except WCSAnalyzerError as e:
         console.print(f"\n  [red]Error:[/red] {e}")
         raise SystemExit(1)
+
+
+def _analyze_with_claude_code(video_path: Path, detail: str, fps: float = 3.0, dancers: str | None = None) -> list:
+    """Run analysis via the locally installed Claude Code CLI."""
+    from .claude_code_analyzer import analyze_dance_claude_code
+
+    with console.status("Analyzing with Claude Code CLI (reading frames)..."):
+        segments = analyze_dance_claude_code(video_path, detail=detail, dancers=dancers, fps=fps)
+    console.print("  Claude Code analyzed video frames")
+    return segments
 
 
 def _analyze_with_gemini(video_path: Path, model: str, detail: str, dancers: str | None = None) -> list:
@@ -206,6 +219,8 @@ def timing(video_path: Path, provider: str, dancers: str | None, verbose: bool):
         model = _DEFAULT_MODELS[provider]
         if provider == "gemini":
             segments = _analyze_with_gemini(video_path, model, detail="low", dancers=dancers)
+        elif provider == "claude-code":
+            segments = _analyze_with_claude_code(video_path, detail="low", fps=2.0, dancers=dancers)
         else:
             segments = _analyze_with_claude(video_path, model, detail="low", fps=2.0, dancers=dancers)
 
