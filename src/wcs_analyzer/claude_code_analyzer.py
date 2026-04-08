@@ -159,10 +159,19 @@ def analyze_dance_claude_code(
             f"Analyze these {len(frame_paths)} sequential frames from a West Coast Swing dance video "
             f"({frames.duration:.0f}s total, sampled at {fps} fps).\n\n"
             f"Read each of these image files and analyze the dance:\n{frame_list}\n\n"
-            f"After viewing all frames, provide your WSDC-style scoring analysis. "
-            f"Include scores for timing, technique, teamwork, and presentation (1-10 each), "
-            f"plus lead/follow individual scores, patterns identified, highlights, "
-            f"and specific improvement suggestions."
+            f"After viewing all frames, provide your WSDC-style scoring analysis as JSON.\n\n"
+            f"You MUST respond with ONLY valid JSON in this exact format:\n"
+            f'{{"timing": {{"score": <1-10>, "off_beat_moments": [], "notes": "..."}}, '
+            f'"technique": {{"score": <1-10>, "posture": {{"score": <1-10>, "notes": "..."}}, '
+            f'"extension": {{"score": <1-10>, "notes": "..."}}, "footwork": {{"score": <1-10>, "notes": "..."}}, '
+            f'"slot": {{"score": <1-10>, "notes": "..."}}, "notes": "..."}}, '
+            f'"teamwork": {{"score": <1-10>, "notes": "..."}}, '
+            f'"presentation": {{"score": <1-10>, "notes": "..."}}, '
+            f'"patterns_identified": ["..."], "highlights": ["..."], "improvements": ["..."], '
+            f'"lead": {{"technique_score": <1-10>, "presentation_score": <1-10>, "notes": "..."}}, '
+            f'"follow": {{"technique_score": <1-10>, "presentation_score": <1-10>, "notes": "..."}}, '
+            f'"overall_impression": "..."}}\n\n'
+            f"Only output valid JSON, no other text."
         )
 
         # Call claude CLI
@@ -178,9 +187,8 @@ def _call_claude_cli(claude_path: str, prompt: str, timeout: int = 300) -> dict:
         claude_path,
         "-p", prompt,
         "--output-format", "json",
-        "--json-schema", _ANALYSIS_SCHEMA,
         "--allowedTools", "Read",
-        "--max-turns", "5",
+        "--max-turns", "25",
     ]
 
     try:
