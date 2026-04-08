@@ -26,6 +26,17 @@ Thumbs.db
 # Cache
 .wcs-analyzer/
 
+# Video files
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.avi
+*.mkv
+*.webm
+*.wmv
+*.flv
+
 # Analysis outputs
 *_report.json
 *_report.csv

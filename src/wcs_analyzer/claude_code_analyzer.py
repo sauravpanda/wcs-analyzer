@@ -128,13 +128,13 @@ def analyze_dance_claude_code(
 
     # Select frames based on detail level
     if detail == "low":
-        step = max(1, len(frames.images) // 6)
-    elif detail == "high":
         step = max(1, len(frames.images) // 20)
+    elif detail == "high":
+        step = max(1, len(frames.images) // 50)
     else:
-        step = max(1, len(frames.images) // 12)
+        step = max(1, len(frames.images) // 30)
 
-    selected = frames.images[::step][:20]  # cap at 20 frames
+    selected = frames.images[::step][:50]  # cap at 50 frames
     logger.info("Selected %d frames for analysis", len(selected))
 
     # Save frames to temp directory
