@@ -8,6 +8,7 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
+from .analyzer import _extract_pattern_details, _extract_pattern_names
 from .exceptions import AnalysisError
 from .prompts import DANCER_CONTEXT_TEMPLATE, GEMINI_VIDEO_PROMPT, SYSTEM_PROMPT
 from .scoring import SegmentAnalysis
@@ -189,7 +190,8 @@ def _parse_response(raw: str) -> SegmentAnalysis:
         extension_score=float(data.get("technique", {}).get("extension", {}).get("score", 5)),
         footwork_score=float(data.get("technique", {}).get("footwork", {}).get("score", 5)),
         slot_score=float(data.get("technique", {}).get("slot", {}).get("score", 5)),
-        patterns=data.get("patterns_identified", data.get("patterns_seen", [])),
+        patterns=_extract_pattern_names(data.get("patterns_identified", data.get("patterns_seen", []))),
+        pattern_details=_extract_pattern_details(data.get("patterns_identified", data.get("patterns_seen", []))),
         highlights=data.get("highlights", data.get("top_strengths", [])),
         improvements=data.get("improvements", data.get("top_improvements", [])),
         lead_technique=float(data.get("lead", {}).get("technique_score", 0)),

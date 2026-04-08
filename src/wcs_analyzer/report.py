@@ -88,25 +88,34 @@ def print_report(scores: FinalScores, video_name: str) -> None:
     console.print(table)
     console.print()
 
-    # Technique sub-scores
+    # Technique sub-scores with notes
     tech_table = Table(title="Technique Breakdown", show_header=True, header_style="bold cyan")
-    tech_table.add_column("Area", style="bold", width=16)
-    tech_table.add_column("Score", justify="center", width=10)
+    tech_table.add_column("Area", style="bold", width=12)
+    tech_table.add_column("Score", justify="center", width=8)
     tech_table.add_column("", width=12)
+    tech_table.add_column("Notes", width=50)
+
+    # Extract technique notes from raw data (summary or first segment)
+    tech_raw = {}
+    for seg in scores.segments:
+        if seg.raw_data and "technique" in seg.raw_data:
+            tech_raw = seg.raw_data["technique"]
+            break
 
     sub_scores = [
-        ("Posture", scores.posture),
-        ("Extension", scores.extension),
-        ("Footwork", scores.footwork),
-        ("Slot", scores.slot),
+        ("Posture", scores.posture, tech_raw.get("posture", {}).get("notes", "")),
+        ("Extension", scores.extension, tech_raw.get("extension", {}).get("notes", "")),
+        ("Footwork", scores.footwork, tech_raw.get("footwork", {}).get("notes", "")),
+        ("Slot", scores.slot, tech_raw.get("slot", {}).get("notes", "")),
     ]
 
-    for name, score in sub_scores:
+    for name, score, notes in sub_scores:
         color = _score_color(score)
         tech_table.add_row(
             name,
             f"[{color}]{score}[/{color}]",
             f"[{color}]{_score_bar(score)}[/{color}]",
+            f"[dim]{notes}[/dim]" if notes else "",
         )
 
     console.print(tech_table)
@@ -155,8 +164,32 @@ def print_report(scores: FinalScores, video_name: str) -> None:
     else:
         console.print("  [bold]Off-beat moments:[/bold] [green]None detected[/green]\n")
 
-    # Patterns identified
-    if scores.all_patterns:
+    # Patterns — detailed table if available, otherwise simple list
+    if scores.pattern_details:
+        pat_table = Table(title="Pattern Analysis", show_header=True, header_style="bold cyan")
+        pat_table.add_column("Pattern", style="bold", width=22)
+        pat_table.add_column("Quality", justify="center", width=12)
+        pat_table.add_column("Timing", justify="center", width=12)
+        pat_table.add_column("Notes", width=40)
+
+        quality_colors = {"strong": "green", "solid": "yellow", "needs_work": "dark_orange", "weak": "red"}
+        timing_colors = {"on_beat": "green", "slightly_off": "yellow", "off_beat": "red"}
+
+        for pd in scores.pattern_details:
+            q = pd.get("quality", "solid")
+            t = pd.get("timing", "on_beat")
+            qc = quality_colors.get(q, "white")
+            tc = timing_colors.get(t, "white")
+            pat_table.add_row(
+                pd.get("name", "?"),
+                f"[{qc}]{q.replace('_', ' ')}[/{qc}]",
+                f"[{tc}]{t.replace('_', ' ')}[/{tc}]",
+                pd.get("notes", ""),
+            )
+
+        console.print(pat_table)
+        console.print()
+    elif scores.all_patterns:
         console.print(f"  [bold]Patterns identified:[/bold] {', '.join(scores.all_patterns)}")
         console.print()
 
@@ -240,6 +273,7 @@ def save_report_json(scores: FinalScores, path: Path) -> None:
         "off_beat_moments": scores.off_beat_moments,
         "total_off_beat": scores.total_off_beat,
         "patterns": scores.all_patterns,
+        "pattern_details": scores.pattern_details,
         "strengths": scores.top_strengths,
         "improvements": scores.top_improvements,
         "overall_impression": scores.overall_impression,

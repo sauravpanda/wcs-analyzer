@@ -24,7 +24,8 @@ class SegmentAnalysis:
 
     # Details
     off_beat_moments: list[dict] = field(default_factory=list)
-    patterns: list[str] = field(default_factory=list)
+    patterns: list[str] = field(default_factory=list)  # plain names for backward compat
+    pattern_details: list[dict] = field(default_factory=list)  # rich pattern info
     highlights: list[str] = field(default_factory=list)
     improvements: list[str] = field(default_factory=list)
 
@@ -86,6 +87,7 @@ class FinalScores:
     total_off_beat: int = 0
     off_beat_moments: list[dict] = field(default_factory=list)
     all_patterns: list[str] = field(default_factory=list)
+    pattern_details: list[dict] = field(default_factory=list)
     top_strengths: list[str] = field(default_factory=list)
     top_improvements: list[str] = field(default_factory=list)
     overall_impression: str = ""
@@ -164,6 +166,16 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
                 seen_patterns.add(p.lower())
                 all_patterns.append(p)
 
+    # Collect pattern details (deduplicated by name)
+    seen_detail_names: set[str] = set()
+    all_pattern_details = []
+    for seg in scoring_segments:
+        for pd in seg.pattern_details:
+            name = pd.get("name", "").lower()
+            if name and name not in seen_detail_names:
+                seen_detail_names.add(name)
+                all_pattern_details.append(pd)
+
     # Use summary for strengths/improvements, or aggregate
     if summary:
         strengths = summary.highlights[:3] or _collect_top(scoring_segments, "highlights", 3)
@@ -216,6 +228,7 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         total_off_beat=len(all_off_beat),
         off_beat_moments=all_off_beat,
         all_patterns=all_patterns,
+        pattern_details=all_pattern_details,
         top_strengths=strengths,
         top_improvements=improvements,
         overall_impression=impression,

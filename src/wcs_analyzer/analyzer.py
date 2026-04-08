@@ -195,7 +195,8 @@ def _parse_segment_json(raw: str, start_time: float, end_time: float) -> Segment
         extension_score=float(data.get("technique", {}).get("extension", {}).get("score", 5)),
         footwork_score=float(data.get("technique", {}).get("footwork", {}).get("score", 5)),
         slot_score=float(data.get("technique", {}).get("slot", {}).get("score", 5)),
-        patterns=data.get("patterns_identified", []),
+        patterns=_extract_pattern_names(data.get("patterns_identified", [])),
+        pattern_details=_extract_pattern_details(data.get("patterns_identified", [])),
         highlights=data.get("highlights", []),
         improvements=data.get("improvements", []),
         lead_technique=float(data.get("lead", {}).get("technique_score", 0)),
@@ -248,3 +249,25 @@ def _get_summary(
         start_time=0.0,
         end_time=audio.duration,
     )
+
+
+def _extract_pattern_names(patterns: list) -> list[str]:
+    """Extract plain pattern names from mixed list of strings/dicts."""
+    names = []
+    for p in patterns:
+        if isinstance(p, str):
+            names.append(p)
+        elif isinstance(p, dict):
+            names.append(p.get("name", "unknown"))
+    return names
+
+
+def _extract_pattern_details(patterns: list) -> list[dict]:
+    """Extract rich pattern details, normalizing strings to dicts."""
+    details = []
+    for p in patterns:
+        if isinstance(p, dict) and "name" in p:
+            details.append(p)
+        elif isinstance(p, str):
+            details.append({"name": p, "quality": "solid", "timing": "on_beat", "notes": ""})
+    return details

@@ -76,10 +76,10 @@ Respond in this exact JSON format:
   }},
   "technique": {{
     "score": <1-10>,
-    "posture": {{"score": <1-10>, "notes": "<observations>"}},
-    "extension": {{"score": <1-10>, "notes": "<observations>"}},
-    "footwork": {{"score": <1-10>, "notes": "<observations>"}},
-    "slot": {{"score": <1-10>, "notes": "<observations>"}},
+    "posture": {{"score": <1-10>, "notes": "<detail: frame alignment, core engagement, forward lean, head position, shoulder tension>"}},
+    "extension": {{"score": <1-10>, "notes": "<detail: arm reach, body stretch through slot, line quality>"}},
+    "footwork": {{"score": <1-10>, "notes": "<detail: heel leads, toe leads, rolling through feet, triple step clarity>"}},
+    "slot": {{"score": <1-10>, "notes": "<detail: staying in the slot line, drifting, lane discipline>"}},
     "notes": "<overall technique observations>"
   }},
   "teamwork": {{
@@ -93,7 +93,9 @@ Respond in this exact JSON format:
     "styling": "<observations>",
     "notes": "<overall presentation observations>"
   }},
-  "patterns_identified": ["<e.g., sugar push, left side pass, whip>"],
+  "patterns_identified": [
+    {{"name": "<e.g., sugar push>", "quality": "<strong|solid|needs_work|weak>", "timing": "<on_beat|slightly_off|off_beat>", "notes": "<what was good or needs work>"}}
+  ],
   "highlights": ["<notable positive moments>"],
   "improvements": ["<specific actionable suggestions>"],
   "lead": {{
@@ -134,10 +136,10 @@ Respond in this exact JSON format:
   },
   "technique": {
     "score": <1-10>,
-    "posture": {"score": <1-10>, "notes": "<observations>"},
-    "extension": {"score": <1-10>, "notes": "<observations>"},
-    "footwork": {"score": <1-10>, "notes": "<observations>"},
-    "slot": {"score": <1-10>, "notes": "<observations>"},
+    "posture": {"score": <1-10>, "notes": "<detail: frame alignment, core engagement, forward lean, head position, shoulder tension>"},
+    "extension": {"score": <1-10>, "notes": "<detail: arm reach, body stretch through slot, line quality>"},
+    "footwork": {"score": <1-10>, "notes": "<detail: heel leads, toe leads, rolling through feet, triple step clarity>"},
+    "slot": {"score": <1-10>, "notes": "<detail: staying in the slot line, drifting, lane discipline>"},
     "notes": "<overall technique observations>"
   },
   "teamwork": {
@@ -151,7 +153,14 @@ Respond in this exact JSON format:
     "styling": "<observations>",
     "notes": "<overall presentation observations>"
   },
-  "patterns_identified": ["<e.g., sugar push, left side pass, whip>"],
+  "patterns_identified": [
+    {
+      "name": "<e.g., sugar push, left side pass, whip>",
+      "quality": "<strong|solid|needs_work|weak>",
+      "timing": "<on_beat|slightly_off|off_beat>",
+      "notes": "<what was good or needs improvement in this pattern>"
+    }
+  ],
   "highlights": ["<notable positive moments with approximate timestamps>"],
   "improvements": ["<specific actionable suggestions>"],
   "lead": {
