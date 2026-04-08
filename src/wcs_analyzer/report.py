@@ -143,11 +143,14 @@ def print_report(scores: FinalScores, video_name: str) -> None:
     if scores.off_beat_moments:
         console.print(f"  [bold]Off-beat moments:[/bold] [red]{scores.total_off_beat} detected[/red]")
         for moment in scores.off_beat_moments:
-            time_str = moment.get("timestamp_approx", moment.get("time", "?"))
-            desc = moment.get("description", "")
-            beat = moment.get("beat_count", "")
-            beat_str = f" ({beat})" if beat else ""
-            console.print(f"    [red]-[/red] {time_str}{beat_str}: {desc}")
+            if isinstance(moment, str):
+                console.print(f"    [red]-[/red] {moment}")
+            else:
+                time_str = moment.get("timestamp_approx", moment.get("time", "?"))
+                desc = moment.get("description", "")
+                beat = moment.get("beat_count", "")
+                beat_str = f" ({beat})" if beat else ""
+                console.print(f"    [red]-[/red] {time_str}{beat_str}: {desc}")
         console.print()
     else:
         console.print("  [bold]Off-beat moments:[/bold] [green]None detected[/green]\n")
@@ -191,11 +194,14 @@ def print_timing_report(scores: FinalScores, video_name: str) -> None:
     if scores.off_beat_moments:
         console.print(f"\n  [bold]Off-beat moments:[/bold] [red]{scores.total_off_beat}[/red]\n")
         for moment in scores.off_beat_moments:
-            time_str = moment.get("timestamp_approx", moment.get("time", "?"))
-            desc = moment.get("description", "")
-            beat = moment.get("beat_count", "")
-            beat_str = f" ({beat})" if beat else ""
-            console.print(f"    [red]\u2022[/red] {time_str}{beat_str}: {desc}")
+            if isinstance(moment, str):
+                console.print(f"    [red]\u2022[/red] {moment}")
+            else:
+                time_str = moment.get("timestamp_approx", moment.get("time", "?"))
+                desc = moment.get("description", "")
+                beat = moment.get("beat_count", "")
+                beat_str = f" ({beat})" if beat else ""
+                console.print(f"    [red]\u2022[/red] {time_str}{beat_str}: {desc}")
     else:
         console.print("\n  [green]No off-beat moments detected![/green]")
 
