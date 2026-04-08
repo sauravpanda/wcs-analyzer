@@ -1,113 +1,146 @@
-"""Video frame extraction and sampling for WCS analysis."""
-
-from __future__ import annotations
+"""Video frame extraction and sampling."""
 
 import base64
-import io
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
-import numpy as np
+
+from .exceptions import VideoProcessingError
+
+logger = logging.getLogger(__name__)
+
+# Safety limit: max total frames to extract. At ~1600 tokens each, 500
+# frames ≈ 800k tokens which far exceeds a single call but caps memory.
+_MAX_TOTAL_FRAMES = 500
 
 
 @dataclass
-class Frame:
-    timestamp: float  # seconds
-    index: int
-    data: bytes  # JPEG bytes
-    beat_number: int | None = None
+class FrameData:
+    """Extracted frames from a video with metadata."""
 
-    def as_base64(self) -> str:
-        return base64.b64encode(self.data).decode()
-
-
-@dataclass
-class Segment:
-    """~8-count phrase of frames."""
-
-    segment_index: int
-    start_time: float
-    end_time: float
-    frames: list[Frame] = field(default_factory=list)
+    images: list[str] = field(default_factory=list)  # base64-encoded JPEGs
+    timestamps: list[float] = field(default_factory=list)  # seconds
+    fps_original: float = 0.0
+    fps_sampled: float = 0.0
+    duration: float = 0.0
+    width: int = 0
+    height: int = 0
 
 
-def extract_frames(
-    video_path: Path,
-    fps: float = 3.0,
-    max_dimension: int = 768,
-) -> tuple[list[Frame], float]:
-    """Extract frames from video at given fps. Returns (frames, video_fps)."""
+def extract_frames(video_path: Path, fps: float = 3.0, max_dimension: int = 768) -> FrameData:
+    """Extract frames from video at the given sample rate.
+
+    Args:
+        video_path: Path to the video file.
+        fps: Frames per second to sample.
+        max_dimension: Max width/height for resized frames (keeps aspect ratio).
+
+    Returns:
+        FrameData with base64-encoded frames and timestamps.
+    """
+    logger.debug("Opening video: %s", video_path)
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
-        raise ValueError(f"Cannot open video: {video_path}")
+        raise VideoProcessingError(f"Cannot open video: {video_path}")
 
-    video_fps = cap.get(cv2.CAP_PROP_FPS)
+    original_fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration = total_frames / video_fps
+    duration = total_frames / original_fps if original_fps > 0 else 0
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    frame_interval = int(video_fps / fps)
-    frames: list[Frame] = []
-    frame_index = 0
-    extracted_index = 0
+    # Calculate frame interval for desired sample rate
+    frame_interval = max(1, int(original_fps / fps))
 
+    data = FrameData(
+        fps_original=original_fps,
+        fps_sampled=fps,
+        duration=duration,
+        width=width,
+        height=height,
+    )
+
+    # Calculate resize dimensions
+    scale = min(max_dimension / width, max_dimension / height, 1.0)
+    new_w = int(width * scale)
+    new_h = int(height * scale)
+
+    frame_idx = 0
     while True:
-        ret, bgr = cap.read()
+        ret, frame = cap.read()
         if not ret:
             break
 
-        if frame_index % frame_interval == 0:
-            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-            h, w = rgb.shape[:2]
-            if max(h, w) > max_dimension:
-                scale = max_dimension / max(h, w)
-                new_w, new_h = int(w * scale), int(h * scale)
-                rgb = cv2.resize(rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        if frame_idx % frame_interval == 0:
+            # Resize
+            if scale < 1.0:
+                frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-            _, buf = cv2.imencode(".jpg", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 85])
-            frames.append(Frame(
-                timestamp=frame_index / video_fps,
-                index=extracted_index,
-                data=buf.tobytes(),
-            ))
-            extracted_index += 1
+            # Encode as JPEG
+            _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            b64 = base64.b64encode(buffer.tobytes()).decode("utf-8")
 
-        frame_index += 1
+            data.images.append(b64)
+            data.timestamps.append(frame_idx / original_fps)
+
+            if len(data.images) >= _MAX_TOTAL_FRAMES:
+                logger.warning(
+                    "Reached max frame limit (%d). Consider lowering --fps or trimming the video.",
+                    _MAX_TOTAL_FRAMES,
+                )
+                break
+
+        frame_idx += 1
 
     cap.release()
-    return frames, video_fps
+    logger.info(
+        "Extracted %d frames from %s (%.1fs, %dx%d, sampled at %.1f fps)",
+        len(data.images), video_path, duration, width, height, fps,
+    )
+    return data
 
 
-def assign_beats_to_frames(frames: list[Frame], beat_times: list[float]) -> None:
-    """Tag each frame with the closest beat number (1-indexed)."""
-    beat_arr = np.array(beat_times)
-    for frame in frames:
-        if len(beat_arr) == 0:
-            break
-        idx = int(np.argmin(np.abs(beat_arr - frame.timestamp)))
-        frame.beat_number = idx + 1
+def group_frames_by_phrase(
+    frames: FrameData, beats_per_phrase: int = 8, bpm: float = 120.0
+) -> list[dict]:
+    """Group frames into musical phrases (e.g., 8-count segments).
 
+    Args:
+        frames: Extracted frame data.
+        beats_per_phrase: Beats per phrase (8 for WCS 8-count patterns).
+        bpm: Tempo in beats per minute.
 
-def build_segments(frames: list[Frame], beats_per_segment: int = 8, bpm: float = 120.0) -> list[Segment]:
-    """Group frames into segments roughly aligned to 8-count phrases."""
-    if not frames:
-        return []
+    Returns:
+        List of dicts with 'images', 'timestamps', 'phrase_index', 'start_time', 'end_time'.
+    """
+    phrase_duration = (beats_per_phrase / bpm) * 60  # seconds per phrase
+    phrases = []
 
-    segment_duration = (beats_per_segment / bpm) * 60.0
-    total_duration = frames[-1].timestamp + 0.1
-    num_segments = max(1, int(total_duration / segment_duration))
+    phrase_start = 0.0
+    phrase_idx = 0
 
-    segments: list[Segment] = []
-    for i in range(num_segments):
-        start = i * segment_duration
-        end = (i + 1) * segment_duration
-        seg_frames = [f for f in frames if start <= f.timestamp < end]
-        if seg_frames:
-            segments.append(Segment(
-                segment_index=i,
-                start_time=start,
-                end_time=end,
-                frames=seg_frames,
-            ))
+    while phrase_start < frames.duration:
+        phrase_end = phrase_start + phrase_duration
+        phrase_images = []
+        phrase_timestamps = []
 
-    return segments
+        for img, ts in zip(frames.images, frames.timestamps):
+            if phrase_start <= ts < phrase_end:
+                phrase_images.append(img)
+                phrase_timestamps.append(ts)
+
+        if phrase_images:
+            phrases.append({
+                "images": phrase_images,
+                "timestamps": phrase_timestamps,
+                "phrase_index": phrase_idx,
+                "start_time": phrase_start,
+                "end_time": min(phrase_end, frames.duration),
+            })
+
+        phrase_start = phrase_end
+        phrase_idx += 1
+
+    return phrases

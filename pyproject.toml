@@ -1,14 +1,15 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "wcs-analyzer"
-version = "0.1.0"
-description = "WCS dance video analyzer with WSDC-style competition scoring"
-readme = "README.md"
-requires-python = ">=3.11"
+version = "0.3.1"
+license = {text = "MIT"}
+description = "AI-powered West Coast Swing dance video analyzer with WSDC-style scoring"
+requires-python = ">=3.10"
 dependencies = [
+    "google-genai>=1.0.0",
     "anthropic>=0.40.0",
     "opencv-python>=4.9.0",
     "librosa>=0.10.0",
@@ -16,11 +17,24 @@ dependencies = [
     "click>=8.1.0",
     "rich>=13.0.0",
     "pydantic>=2.0.0",
-    "numpy>=1.26.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.4.0",
+    "pyright>=1.1.350",
 ]
 
 [project.scripts]
-wcs-analyzer = "wcs_analyzer.cli:cli"
+wcs-analyzer = "wcs_analyzer.cli:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/wcs_analyzer"]
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"

@@ -1,0 +1,42 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.pytest_cache/
+dist/
+build/
+*.egg
+
+# Environment and secrets
+.env
+.env.*
+*.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+.wcs-analyzer/
+
+# Video files
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.avi
+*.mkv
+*.webm
+*.wmv
+*.flv
+
+# Analysis outputs
+*_report.json
+*_report.csv

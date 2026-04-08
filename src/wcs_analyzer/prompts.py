@@ -1,118 +1,239 @@
-"""WCS-specific prompts for Claude vision analysis."""
+"""WCS-specific prompts for dance video analysis."""
 
 SYSTEM_PROMPT = """\
-You are an expert West Coast Swing (WCS) judge certified under WSDC (World Swing Dance Council) criteria. \
-You analyze video frames of WCS couples and provide structured, objective scores and detailed feedback.
+You are an expert West Coast Swing (WCS) dance judge with decades of experience \
+evaluating dancers at WSDC (World Swing Dance Council) competitions. You analyze \
+dance videos frame-by-frame and provide detailed, constructive feedback.
 
-WSDC Scoring Categories:
-1. Timing & Rhythm (weight: 30%)
-   - On-beat footwork and body movement
-   - Accuracy of syncopations and triples
-   - Responsiveness to musical breaks and accents
-   - Slot integrity relative to the beat
+You evaluate dancers on four WSDC categories:
 
-2. Technique (weight: 30%)
-   - Posture and frame quality
-   - Arm extension and connection points
-   - Footwork precision (heel leads, toe points, anchor steps)
-   - Slot maintenance and body mechanics
+1. **Timing & Rhythm** (30% weight)
+   - Dancing on beat with the music
+   - Proper timing of syncopations (triple steps, kick-ball-changes)
+   - Musical breaks and pauses executed on time
+   - Anchor steps landing on the correct beats
+   - Maintaining consistent rhythm throughout patterns
 
-3. Teamwork (weight: 20%)
-   - Lead/follow clarity and responsiveness
-   - Shared weight and connection quality
-   - Matching energy and intention
-   - Smooth transitions between patterns
+2. **Technique** (30% weight)
+   - Posture: upright frame, engaged core, neutral spine
+   - Extension: full arm and body extension through the slot
+   - Footwork: heel leads, toe leads, rolling through feet properly
+   - Anchor steps: proper settle, compression, triple rhythm in place
+   - Slot maintenance: dancing in a straight line (the slot)
+   - Connection frame: arms at proper angles, elbows in
 
-4. Presentation (weight: 20%)
-   - Musicality and interpretation
-   - Styling choices that complement the music
-   - Confidence and performance energy
-   - Visual appeal and entertainment value
+3. **Teamwork** (20% weight)
+   - Lead/follow connection quality
+   - Shared weight and counterbalance
+   - Responsiveness to partner's movements
+   - Matched energy and intent
+   - Proper leverage and compression
 
-Scoring scale:
-- 9–10: Championship level, near flawless
-- 7–8: Advanced level, minor errors
-- 5–6: Intermediate, notable inconsistencies
-- 3–4: Beginner, frequent errors
-- 1–2: Significant technical issues
+4. **Presentation** (20% weight)
+   - Musicality: interpreting the music beyond basic rhythm
+   - Styling: personal expression, body rolls, arm styling
+   - Confidence and stage presence
+   - Performance quality and engagement
+   - Creativity in movement choices
 
-Always be specific, citing observable evidence from the frames provided.
+Score each category from 1 to 10:
+- 1-3: Novice level, fundamental issues
+- 4-5: Intermediate, basics present but inconsistent
+- 6-7: Advanced, solid technique with room for improvement
+- 8-9: All-Star/Champion level, polished and consistent
+- 10: Exceptional, professional quality
+
+Be specific and constructive. Reference exact moments when possible. \
+Note both strengths and areas for improvement.
+
+IMPORTANT: If the video contains multiple couples or bystanders, focus \
+ONLY on the specified dancers. Ignore all other people in the frame.\
+"""
+
+DANCER_CONTEXT_TEMPLATE = """\
+DANCER IDENTIFICATION: {dancer_description}
+Focus your analysis ONLY on these dancers. There may be other people \
+visible in the video (other couples, spectators, judges) — ignore them entirely.
 """
 
 SEGMENT_ANALYSIS_PROMPT = """\
-Analyze this segment of West Coast Swing dancing.
+Analyze this segment of a West Coast Swing dance video.
 
-Segment info:
-- Segment #{segment_index} of {total_segments}
-- Time: {start_time:.1f}s – {end_time:.1f}s
-- Estimated BPM: {bpm:.1f}
-- Beat timestamps in this segment: {beat_times}
+{dancer_context}{beat_context}
 
-Frames are provided in chronological order. Each frame is labeled with its timestamp.
+The frames below are sequential images from this segment of the dance. \
+Examine the dancer(s) carefully for timing, technique, teamwork, and presentation.
 
-Evaluate the dancers on all four WSDC categories and return a JSON object with this exact structure:
+Respond in this exact JSON format:
 {{
-  "segment_index": {segment_index},
-  "timing_score": <1-10 float>,
-  "technique_score": <1-10 float>,
-  "teamwork_score": <1-10 float>,
-  "presentation_score": <1-10 float>,
-  "timing_notes": "<specific observations>",
-  "technique_notes": "<specific observations>",
-  "teamwork_notes": "<specific observations>",
-  "presentation_notes": "<specific observations>",
-  "off_beat_moments": [
-    {{"timestamp": <float>, "description": "<what happened>"}}
+  "timing": {{
+    "score": <1-10>,
+    "on_beat": <true/false for overall>,
+    "off_beat_moments": [
+      {{"timestamp_approx": "<time>", "description": "<what happened>", "beat_count": "<e.g., 3&4>"}}
+    ],
+    "notes": "<detailed timing observations>"
+  }},
+  "technique": {{
+    "score": <1-10>,
+    "posture": {{"score": <1-10>, "notes": "<detail: frame alignment, core engagement, forward lean, head position, shoulder tension>"}},
+    "extension": {{"score": <1-10>, "notes": "<detail: arm reach, body stretch through slot, line quality>"}},
+    "footwork": {{"score": <1-10>, "notes": "<detail: heel leads, toe leads, rolling through feet, triple step clarity>"}},
+    "slot": {{"score": <1-10>, "notes": "<detail: staying in the slot line, drifting, lane discipline>"}},
+    "notes": "<overall technique observations>"
+  }},
+  "teamwork": {{
+    "score": <1-10>,
+    "connection": "<observations about lead/follow connection>",
+    "notes": "<overall teamwork observations>"
+  }},
+  "presentation": {{
+    "score": <1-10>,
+    "musicality": "<observations>",
+    "styling": "<observations>",
+    "notes": "<overall presentation observations>"
+  }},
+  "patterns_identified": [
+    {{"name": "<e.g., sugar push>", "quality": "<strong|solid|needs_work|weak>", "timing": "<on_beat|slightly_off|off_beat>", "notes": "<what was good or needs work>"}}
   ],
-  "highlight_moments": [
-    {{"timestamp": <float>, "description": "<what happened>"}}
-  ]
+  "highlights": ["<notable positive moments>"],
+  "improvements": ["<specific actionable suggestions>"],
+  "lead": {{
+    "technique_score": <1-10>,
+    "presentation_score": <1-10>,
+    "notes": "<lead-specific observations>"
+  }},
+  "follow": {{
+    "technique_score": <1-10>,
+    "presentation_score": <1-10>,
+    "notes": "<follow-specific observations>"
+  }}
 }}
 
-Return ONLY the JSON object, no surrounding text.
+Only output valid JSON, no other text.\
 """
 
-FINAL_SUMMARY_PROMPT = """\
-You have analyzed {total_segments} segments of a West Coast Swing dance. \
-Here are the per-segment scores and notes:
+GEMINI_VIDEO_PROMPT = """\
+Watch and listen to this entire West Coast Swing dance video carefully. \
+Pay attention to both the visual movement AND the music/audio to judge timing accuracy.
 
-{segment_summaries}
+{dancer_context}\
+Analyze the full performance and provide a comprehensive evaluation. \
+Since you can hear the music, evaluate whether the dancers are truly on beat — \
+listen for anchors landing on the downbeat, triples matching the rhythm, \
+and whether styling choices align with musical accents and breaks.
 
-Based on this data, produce a final holistic analysis. Return a JSON object:
+Respond in this exact JSON format:
+{
+  "timing": {
+    "score": <1-10>,
+    "on_beat": <true/false for overall>,
+    "off_beat_moments": [
+      {"timestamp_approx": "<time>", "description": "<what happened>", "beat_count": "<e.g., 3&4>"}
+    ],
+    "rhythm_consistency": "<assessment of timing throughout>",
+    "notes": "<detailed timing observations referencing what you heard in the music>"
+  },
+  "technique": {
+    "score": <1-10>,
+    "posture": {"score": <1-10>, "notes": "<detail: frame alignment, core engagement, forward lean, head position, shoulder tension>"},
+    "extension": {"score": <1-10>, "notes": "<detail: arm reach, body stretch through slot, line quality>"},
+    "footwork": {"score": <1-10>, "notes": "<detail: heel leads, toe leads, rolling through feet, triple step clarity>"},
+    "slot": {"score": <1-10>, "notes": "<detail: staying in the slot line, drifting, lane discipline>"},
+    "notes": "<overall technique observations>"
+  },
+  "teamwork": {
+    "score": <1-10>,
+    "connection": "<observations about lead/follow connection>",
+    "notes": "<overall teamwork observations>"
+  },
+  "presentation": {
+    "score": <1-10>,
+    "musicality": "<observations — reference specific musical moments>",
+    "styling": "<observations>",
+    "notes": "<overall presentation observations>"
+  },
+  "patterns_identified": [
+    {
+      "name": "<e.g., sugar push, left side pass, whip>",
+      "quality": "<strong|solid|needs_work|weak>",
+      "timing": "<on_beat|slightly_off|off_beat>",
+      "notes": "<what was good or needs improvement in this pattern>"
+    }
+  ],
+  "highlights": ["<notable positive moments with approximate timestamps>"],
+  "improvements": ["<specific actionable suggestions>"],
+  "lead": {
+    "technique_score": <1-10>,
+    "presentation_score": <1-10>,
+    "notes": "<lead-specific observations>"
+  },
+  "follow": {
+    "technique_score": <1-10>,
+    "presentation_score": <1-10>,
+    "notes": "<follow-specific observations>"
+  },
+  "overall_impression": "<1-2 sentence overall assessment>",
+  "estimated_bpm": <estimated BPM from the music>,
+  "song_style": "<e.g., blues, contemporary, lyrical>"
+}
+
+Only output valid JSON, no other text.\
+"""
+
+SUMMARY_PROMPT = """\
+You have analyzed {num_segments} segments of a West Coast Swing dance video \
+({duration:.0f} seconds total, {bpm:.0f} BPM).
+
+Here are the per-segment analysis results:
+
+{segment_results}
+
+Provide a final summary analysis combining all segments. Respond in this exact JSON format:
 {{
-  "overall_timing": <1-10 float, weighted avg>,
-  "overall_technique": <1-10 float, weighted avg>,
-  "overall_teamwork": <1-10 float, weighted avg>,
-  "overall_presentation": <1-10 float, weighted avg>,
-  "top_strengths": ["<strength 1>", "<strength 2>", "<strength 3>"],
-  "areas_to_improve": ["<area 1>", "<area 2>", "<area 3>"],
-  "judge_commentary": "<2-3 sentence holistic summary a WCS judge would give>"
+  "timing": {{
+    "score": <1-10 overall>,
+    "total_off_beat_moments": <count>,
+    "off_beat_details": [
+      {{"time": "<timestamp>", "description": "<what happened>", "beat_count": "<e.g., 3&4>"}}
+    ],
+    "rhythm_consistency": "<assessment>",
+    "notes": "<overall timing summary>"
+  }},
+  "technique": {{
+    "score": <1-10 overall>,
+    "posture_score": <1-10>,
+    "extension_score": <1-10>,
+    "footwork_score": <1-10>,
+    "slot_score": <1-10>,
+    "notes": "<overall technique summary>"
+  }},
+  "teamwork": {{
+    "score": <1-10 overall>,
+    "connection_quality": "<assessment>",
+    "notes": "<overall teamwork summary>"
+  }},
+  "presentation": {{
+    "score": <1-10 overall>,
+    "musicality_notes": "<assessment>",
+    "styling_notes": "<assessment>",
+    "notes": "<overall presentation summary>"
+  }},
+  "patterns_seen": ["<all patterns identified across segments>"],
+  "top_strengths": ["<top 3 strengths>"],
+  "top_improvements": ["<top 3 areas to improve with specific advice>"],
+  "overall_impression": "<1-2 sentence overall assessment>",
+  "lead": {{
+    "technique_score": <1-10>,
+    "presentation_score": <1-10>,
+    "notes": "<lead-specific summary>"
+  }},
+  "follow": {{
+    "technique_score": <1-10>,
+    "presentation_score": <1-10>,
+    "notes": "<follow-specific summary>"
+  }}
 }}
 
-Return ONLY the JSON object.
+Only output valid JSON, no other text.\
 """
-
-
-def build_segment_prompt(
-    segment_index: int,
-    total_segments: int,
-    start_time: float,
-    end_time: float,
-    bpm: float,
-    beat_times: list[float],
-) -> str:
-    return SEGMENT_ANALYSIS_PROMPT.format(
-        segment_index=segment_index,
-        total_segments=total_segments,
-        start_time=start_time,
-        end_time=end_time,
-        bpm=bpm,
-        beat_times=[f"{t:.2f}s" for t in beat_times],
-    )
-
-
-def build_summary_prompt(segment_summaries: str, total_segments: int) -> str:
-    return FINAL_SUMMARY_PROMPT.format(
-        total_segments=total_segments,
-        segment_summaries=segment_summaries,
-    )
