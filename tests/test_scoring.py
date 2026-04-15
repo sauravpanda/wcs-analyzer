@@ -298,3 +298,43 @@ def test_ensemble_single_provider_has_zero_stddev():
     assert ensemble.timing == 7.5
     assert ensemble.stddev["timing"] == 0.0
     assert ensemble.contested == []
+
+
+# ---- Usage aggregation tests ---------------------------------------------
+
+
+def test_final_scores_sums_usage_across_segments():
+    from wcs_analyzer.pricing import UsageTotals
+    seg1 = SegmentAnalysis(
+        start_time=0.0, end_time=4.0,
+        timing_score=7.0, technique_score=7.0, teamwork_score=7.0, presentation_score=7.0,
+        usage=UsageTotals.from_counts("claude-sonnet-4-6", 1000, 500),
+    )
+    seg2 = SegmentAnalysis(
+        start_time=4.0, end_time=8.0,
+        timing_score=7.0, technique_score=7.0, teamwork_score=7.0, presentation_score=7.0,
+        usage=UsageTotals.from_counts("claude-sonnet-4-6", 2000, 1000),
+    )
+    scores = compute_final_scores([seg1, seg2])
+    assert scores.usage.input_tokens == 3000
+    assert scores.usage.output_tokens == 1500
+    assert scores.usage.estimated_cost > 0
+
+
+def test_final_scores_includes_summary_usage():
+    """The summary call's tokens should be counted even though its scores
+    take precedence over the per-segment averages."""
+    from wcs_analyzer.pricing import UsageTotals
+    seg1 = SegmentAnalysis(
+        start_time=0.0, end_time=4.0,
+        usage=UsageTotals.from_counts("claude-sonnet-4-6", 1000, 500),
+    )
+    summary = SegmentAnalysis(
+        start_time=0.0, end_time=8.0,
+        timing_score=8.0, technique_score=8.0, teamwork_score=8.0, presentation_score=8.0,
+        usage=UsageTotals.from_counts("claude-sonnet-4-6", 500, 250),
+        raw_data={"overall_impression": "ok"},
+    )
+    scores = compute_final_scores([seg1, summary])
+    assert scores.usage.input_tokens == 1500
+    assert scores.usage.output_tokens == 750

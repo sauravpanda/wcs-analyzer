@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 
+from .pricing import UsageTotals
+
 
 @dataclass
 class SegmentAnalysis:
@@ -49,6 +51,9 @@ class SegmentAnalysis:
     follow_technique: float = 0.0
     follow_presentation: float = 0.0
     follow_notes: str = ""
+
+    # API usage for this segment's LLM call
+    usage: UsageTotals = field(default_factory=UsageTotals)
 
     # Raw LLM response data
     raw_data: dict = field(default_factory=dict)
@@ -120,6 +125,9 @@ class FinalScores:
     top_strengths: list[str] = field(default_factory=list)
     top_improvements: list[str] = field(default_factory=list)
     overall_impression: str = ""
+
+    # Aggregated API usage + estimated cost across all segments
+    usage: UsageTotals = field(default_factory=UsageTotals)
 
     # Per-segment data for timeline
     segments: list[SegmentAnalysis] = field(default_factory=list)
@@ -206,6 +214,13 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         if overall >= threshold:
             grade = g
             break
+
+    # Aggregate usage across every segment plus any summary call. We
+    # sum over `segments` (not scoring_segments) so the summary LLM
+    # call's tokens are included in the total spend.
+    total_usage = UsageTotals()
+    for seg in segments:
+        total_usage = total_usage.add(seg.usage)
 
     # Collect all off-beat moments
     all_off_beat = []
@@ -307,6 +322,7 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         top_strengths=strengths,
         top_improvements=improvements,
         overall_impression=impression,
+        usage=total_usage,
         segments=scoring_segments,
     )
 

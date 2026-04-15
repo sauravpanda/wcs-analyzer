@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from .audio import AudioFeatures, format_beat_context
 from .exceptions import AnalysisError
+from .pricing import UsageTotals
 from .prompts import (
     DANCER_CONTEXT_TEMPLATE,
     PATTERN_SEGMENTATION_PROMPT,
@@ -99,7 +100,12 @@ def _sub_score(technique: dict, key: str) -> float:
     return clamp_score(technique.get(f"{key}_score", 5))
 
 
-def parse_segment_data(data: dict, start_time: float, end_time: float) -> SegmentAnalysis:
+def parse_segment_data(
+    data: dict,
+    start_time: float,
+    end_time: float,
+    usage: UsageTotals | None = None,
+) -> SegmentAnalysis:
     """Build a SegmentAnalysis from a parsed JSON dict.
 
     Shared by the Claude, Gemini, and Claude Code providers so that
@@ -166,6 +172,7 @@ def parse_segment_data(data: dict, start_time: float, end_time: float) -> Segmen
         follow_technique=clamp_partner(follow.get("technique_score", 0)),
         follow_presentation=clamp_partner(follow.get("presentation_score", 0)),
         follow_notes=follow.get("notes", "") or "",
+        usage=usage or UsageTotals(),
         raw_data=data,
     )
 
@@ -249,7 +256,7 @@ def detect_pattern_timeline(
     ]
     content.append({"type": "text", "text": prompt})
 
-    raw = _call_claude(client, model, content)
+    raw, _usage = _call_claude(client, model, content)
     data = safe_parse_json(raw)
     if data is None or "patterns" not in data:
         logger.warning("Pattern segmentation returned unparseable response: %s", raw[:200])
@@ -286,7 +293,10 @@ def _parse_pattern_timeline(items: list, duration: float) -> list[PatternSegment
     return segments
 
 
-def _default_segment(start_time: float, end_time: float, raw: str) -> SegmentAnalysis:
+def _default_segment(
+    start_time: float, end_time: float, raw: str,
+    usage: UsageTotals | None = None,
+) -> SegmentAnalysis:
     return SegmentAnalysis(
         start_time=start_time,
         end_time=end_time,
@@ -294,6 +304,7 @@ def _default_segment(start_time: float, end_time: float, raw: str) -> SegmentAna
         technique_score=5.0,
         teamwork_score=5.0,
         presentation_score=5.0,
+        usage=usage or UsageTotals(),
         raw_data={"error": "Failed to parse response", "raw": raw[:500]},
     )
 
@@ -395,8 +406,12 @@ def _call_claude(
     model: str,
     content: list,  # type: ignore[type-arg]
     max_retries: int = 3,
-) -> str:
-    """Call Claude API with retries for rate limiting."""
+) -> tuple[str, UsageTotals]:
+    """Call Claude API with retries for rate limiting.
+
+    Returns the response text plus a UsageTotals capturing the token
+    counts and estimated cost for this call.
+    """
     for attempt in range(max_retries):
         try:
             response = client.messages.create(
@@ -408,7 +423,11 @@ def _call_claude(
             block = response.content[0]
             if not hasattr(block, "text"):
                 raise AnalysisError(f"Unexpected response block type: {type(block)}")
-            return block.text  # type: ignore[union-attr]
+            usage_obj = getattr(response, "usage", None)
+            input_tokens = int(getattr(usage_obj, "input_tokens", 0) or 0)
+            output_tokens = int(getattr(usage_obj, "output_tokens", 0) or 0)
+            usage = UsageTotals.from_counts(model, input_tokens, output_tokens)
+            return block.text, usage  # type: ignore[union-attr]
         except anthropic.RateLimitError:
             if attempt < max_retries - 1:
                 wait = 2 ** (attempt + 1)
@@ -416,7 +435,7 @@ def _call_claude(
                 time.sleep(wait)
             else:
                 raise
-    return ""
+    return "", UsageTotals(model=model)
 
 
 def _parse_segment_json(raw: str, start_time: float, end_time: float) -> SegmentAnalysis:
@@ -439,8 +458,12 @@ def _call_and_parse(
     start_time: float,
     end_time: float,
 ) -> SegmentAnalysis:
-    """Call Claude, parse the response, and retry once on JSON parse failure."""
-    raw = _call_claude(client, model, content)
+    """Call Claude, parse the response, and retry once on JSON parse failure.
+
+    Accumulates usage across both the initial call and (if needed) the
+    corrective retry, so the segment's `usage` reflects actual spend.
+    """
+    raw, usage = _call_claude(client, model, content)
     data = safe_parse_json(raw)
     if data is None:
         logger.warning(
@@ -448,15 +471,16 @@ def _call_and_parse(
             start_time, end_time,
         )
         retry_content = list(content) + [{"type": "text", "text": _RETRY_HINT}]
-        raw = _call_claude(client, model, retry_content)
+        raw, retry_usage = _call_claude(client, model, retry_content)
+        usage = usage.add(retry_usage)
         data = safe_parse_json(raw)
     if data is None:
         logger.warning(
             "Segment %.1f-%.1fs: retry also failed to parse. Using default scores. Raw: %s",
             start_time, end_time, raw[:200],
         )
-        return _default_segment(start_time, end_time, raw)
-    return parse_segment_data(data, start_time, end_time)
+        return _default_segment(start_time, end_time, raw, usage=usage)
+    return parse_segment_data(data, start_time, end_time, usage=usage)
 
 
 def _get_summary(

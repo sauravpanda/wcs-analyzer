@@ -83,12 +83,15 @@ class TestAnalyzeDanceGemini:
         video = tmp_path / "small.mp4"
         video.write_bytes(b"x" * 1000)
 
+        from wcs_analyzer.pricing import UsageTotals
         mock_inline.return_value = MagicMock()
-        mock_call.return_value = VALID_GEMINI_RESPONSE
+        usage = UsageTotals.from_counts("gemini-2.5-flash", 1000, 500)
+        mock_call.return_value = (VALID_GEMINI_RESPONSE, usage)
 
         results = analyze_dance_gemini(video, model="gemini-2.5-flash", detail="medium")
         assert len(results) == 1
         assert results[0].timing_score == 8.0
+        assert results[0].usage.input_tokens == 1000
         mock_inline.assert_called_once()
 
     @patch("wcs_analyzer.gemini_analyzer._call_gemini")
@@ -99,8 +102,9 @@ class TestAnalyzeDanceGemini:
         video = tmp_path / "large.mp4"
         video.write_bytes(b"x" * (_INLINE_LIMIT + 1))
 
+        from wcs_analyzer.pricing import UsageTotals
         mock_upload.return_value = MagicMock()
-        mock_call.return_value = VALID_GEMINI_RESPONSE
+        mock_call.return_value = (VALID_GEMINI_RESPONSE, UsageTotals.from_counts("gemini-2.5-flash", 1, 1))
 
         results = analyze_dance_gemini(video, model="gemini-2.5-flash", detail="medium")
         assert len(results) == 1
