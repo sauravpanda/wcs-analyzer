@@ -264,11 +264,14 @@ def _analyze_with_gemini(
 
 
 def _compute_pose_context(video_path: Path) -> str | None:
-    """Extract pose landmarks, compute metrics, and format for the LLM prompt.
+    """Extract pose landmarks, compute metrics (including audio-synced
+    beat verification), and format for the LLM prompt.
 
     Returns None (with a warning) if MediaPipe is not installed so the
     analysis can still proceed without pose guidance.
     """
+    from .audio import extract_audio_features
+    from .exceptions import AudioProcessingError
     from .pose import PoseUnavailableError, compute_all_metrics, extract_poses, format_pose_context
 
     try:
@@ -278,11 +281,27 @@ def _compute_pose_context(video_path: Path) -> str | None:
         console.print(f"  [yellow]Pose skipped:[/yellow] {e}")
         return None
 
-    metrics = compute_all_metrics(pose_data)
-    console.print(
+    beat_times: list[float] = []
+    bpm = 0.0
+    try:
+        with console.status("Extracting audio beats for beat-sync..."):
+            audio = extract_audio_features(video_path)
+        beat_times = audio.beat_times
+        bpm = audio.bpm
+    except AudioProcessingError as e:
+        console.print(f"  [yellow]Beat-sync skipped:[/yellow] {e}")
+
+    metrics = compute_all_metrics(pose_data, beat_times=beat_times, bpm=bpm)
+    summary = (
         f"  Pose metrics: posture {metrics['posture'].get('mean_deg', 0):.1f}° "
         f"deviation, coverage {pose_data.coverage * 100:.0f}%"
     )
+    if "beat_sync" in metrics:
+        summary += (
+            f", beat-sync {metrics['beat_sync'].get('timing_score', 0):.1f}/10 "
+            f"({metrics['beat_sync'].get('mean_offset_ms', 0):.0f}ms mean offset)"
+        )
+    console.print(summary)
     return format_pose_context(metrics)
 
 

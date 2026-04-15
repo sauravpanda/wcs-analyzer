@@ -229,6 +229,52 @@ def compute_extension_metric(frames: list[FramePose]) -> dict[str, float]:
     }
 
 
+def _ankle_footfalls(detected: list[FramePose], idx: int) -> list[float]:
+    """Return timestamps where the given ankle's y-velocity crosses from
+    rising (negative vy) to descending (positive vy) — i.e. a footfall.
+
+    The returned times are interpolated between the two sample times to
+    reduce quantization error from the pose sample rate.
+    """
+    if len(detected) < 3:
+        return []
+    times: list[float] = []
+    ys = [f.landmarks[idx][1] for f in detected]
+    for i in range(len(ys) - 2):
+        v0 = ys[i + 1] - ys[i]
+        v1 = ys[i + 2] - ys[i + 1]
+        if v0 < 0 <= v1:
+            t0 = detected[i + 1].timestamp
+            t1 = detected[i + 2].timestamp
+            denom = v1 - v0
+            alpha = (-v0) / denom if denom > 0 else 0.0
+            times.append(t0 + alpha * (t1 - t0))
+    return times
+
+
+def compute_footfall_times(frames: list[FramePose]) -> list[float]:
+    """Detect footfall timestamps by merging left/right ankle events.
+
+    Returns a sorted list of times (in seconds) that represent
+    approximate footfall moments — useful as input to beat-sync
+    verification.
+    """
+    detected = [f for f in frames if f.detected]
+    if len(detected) < 3:
+        return []
+    left = _ankle_footfalls(detected, LEFT_ANKLE)
+    right = _ankle_footfalls(detected, RIGHT_ANKLE)
+    merged = sorted(left + right)
+    # Collapse near-duplicate events (left+right hitting within 50 ms)
+    collapsed: list[float] = []
+    for t in merged:
+        if collapsed and t - collapsed[-1] < 0.05:
+            collapsed[-1] = (collapsed[-1] + t) / 2
+        else:
+            collapsed.append(t)
+    return collapsed
+
+
 def compute_footwork_metric(frames: list[FramePose]) -> dict[str, float]:
     """Approximate footfall rate by counting ankle-y zero-crossings.
 
@@ -241,16 +287,11 @@ def compute_footwork_metric(frames: list[FramePose]) -> dict[str, float]:
         return {"steps_per_second": 0.0, "samples": len(detected)}
 
     times = [f.timestamp for f in detected]
+    duration = times[-1] - times[0]
 
     def step_rate(idx: int) -> float:
-        ys = [f.landmarks[idx][1] for f in detected]
-        vy = [ys[i + 1] - ys[i] for i in range(len(ys) - 1)]
-        crossings = 0
-        for i in range(len(vy) - 1):
-            if vy[i] < 0 and vy[i + 1] >= 0:
-                crossings += 1
-        duration = times[-1] - times[0]
-        return crossings / duration if duration > 0 else 0.0
+        events = _ankle_footfalls(detected, idx)
+        return len(events) / duration if duration > 0 else 0.0
 
     left = step_rate(LEFT_ANKLE)
     right = step_rate(RIGHT_ANKLE)
@@ -259,6 +300,58 @@ def compute_footwork_metric(frames: list[FramePose]) -> dict[str, float]:
         "left_steps_per_second": left,
         "right_steps_per_second": right,
         "samples": len(detected),
+    }
+
+
+def compute_beat_sync(
+    footfalls: list[float],
+    beat_times: list[float],
+    bpm: float,
+) -> dict[str, float]:
+    """Cross-correlate footfall times with audio beats and produce a
+    timing score in [0, 10].
+
+    For each footfall we find the nearest beat and compute the absolute
+    offset. The score is 10 when every footfall lands exactly on a beat
+    and 0 when the mean offset reaches half a beat interval (i.e. the
+    worst possible case — on the off-beat). Footfalls that sit further
+    than `beat_interval` from any beat are counted at the cap.
+    """
+    if not footfalls or not beat_times or bpm <= 0:
+        return {
+            "timing_score": 0.0,
+            "mean_offset_ms": 0.0,
+            "beat_interval_ms": 0.0,
+            "on_beat_fraction": 0.0,
+            "footfalls": float(len(footfalls)),
+        }
+
+    beat_interval = 60.0 / bpm
+    half_interval = beat_interval / 2
+
+    offsets: list[float] = []
+    on_beat = 0
+    sorted_beats = sorted(beat_times)
+
+    for ft in footfalls:
+        # Binary search would be nice, but the lists are small — use the
+        # linear scan to keep the pure-math module dependency-free.
+        nearest = min(sorted_beats, key=lambda b: abs(b - ft))
+        offset = abs(ft - nearest)
+        capped = min(offset, beat_interval)
+        offsets.append(capped)
+        if capped <= 0.10:  # within 100 ms counts as on-beat
+            on_beat += 1
+
+    mean_offset = sum(offsets) / len(offsets)
+    # Normalize: 0 offset -> 10, half_interval offset -> 0
+    normalized = max(0.0, 1.0 - (mean_offset / half_interval)) if half_interval > 0 else 0.0
+    return {
+        "timing_score": round(normalized * 10, 2),
+        "mean_offset_ms": round(mean_offset * 1000, 1),
+        "beat_interval_ms": round(beat_interval * 1000, 1),
+        "on_beat_fraction": round(on_beat / len(footfalls), 3),
+        "footfalls": float(len(footfalls)),
     }
 
 
@@ -301,15 +394,27 @@ def compute_slot_metric(frames: list[FramePose]) -> dict[str, float]:
     return {"linearity_r2": r2, "samples": n}
 
 
-def compute_all_metrics(pose_data: PoseData) -> dict[str, dict[str, float]]:
-    """Run every metric and return a single dict for prompt formatting."""
-    return {
+def compute_all_metrics(
+    pose_data: PoseData,
+    beat_times: list[float] | None = None,
+    bpm: float = 0.0,
+) -> dict[str, dict[str, float]]:
+    """Run every metric and return a single dict for prompt formatting.
+
+    If `beat_times` and `bpm` are provided, also computes a beat-sync
+    score by cross-correlating detected footfalls with the audio beats.
+    """
+    metrics: dict[str, dict[str, float]] = {
         "posture": compute_posture_metric(pose_data.frames),
         "extension": compute_extension_metric(pose_data.frames),
         "footwork": compute_footwork_metric(pose_data.frames),
         "slot": compute_slot_metric(pose_data.frames),
         "coverage": {"fraction": pose_data.coverage, "frames": float(len(pose_data.frames))},
     }
+    if beat_times and bpm > 0:
+        footfalls = compute_footfall_times(pose_data.frames)
+        metrics["beat_sync"] = compute_beat_sync(footfalls, beat_times, bpm)
+    return metrics
 
 
 def format_pose_context(metrics: dict[str, dict[str, float]]) -> str:
@@ -323,6 +428,7 @@ def format_pose_context(metrics: dict[str, dict[str, float]]) -> str:
     footwork = metrics.get("footwork", {})
     slot = metrics.get("slot", {})
     coverage = metrics.get("coverage", {})
+    beat_sync = metrics.get("beat_sync")
 
     lines = [
         "MEASURED POSE METRICS (MediaPipe BlazePose, single-person detection):",
@@ -336,10 +442,32 @@ def format_pose_context(metrics: dict[str, dict[str, float]]) -> str:
         f"- Hip trajectory linearity (R²): {slot.get('linearity_r2', 0):.2f} "
         f"— slot discipline; 1.0 is a perfect line",
         f"- Pose detection coverage: {coverage.get('fraction', 0) * 100:.0f}% of sampled frames",
+    ]
+
+    if beat_sync:
+        lines.extend([
+            "",
+            "MEASURED BEAT SYNCHRONIZATION "
+            "(footfalls cross-correlated with librosa-detected beats):",
+            f"- Objective timing score: {beat_sync.get('timing_score', 0):.1f} / 10",
+            f"- Mean footfall-to-nearest-beat offset: "
+            f"{beat_sync.get('mean_offset_ms', 0):.0f} ms "
+            f"(beat interval {beat_sync.get('beat_interval_ms', 0):.0f} ms)",
+            f"- On-beat fraction (within ±100 ms): "
+            f"{beat_sync.get('on_beat_fraction', 0) * 100:.0f}%",
+            f"- Detected footfalls: {int(beat_sync.get('footfalls', 0))}",
+            "",
+            "The objective timing score above is MEASURED from the audio and the "
+            "dancer's footfalls — your `timing.score` should stay within ±1.0 of it "
+            "unless you have a strong musical-interpretation reason to differ. "
+            "Explain any deviation in `timing.reasoning`.",
+        ])
+
+    lines.extend([
         "",
         "Treat these as objective measurements. Use them to inform your posture, "
         "extension, footwork, and slot scores rather than inferring from pixels alone. "
         "Note: detection is single-person, so metrics reflect whichever dancer the "
         "detector locked onto (typically the lead).",
-    ]
+    ])
     return "\n".join(lines)

@@ -8,7 +8,9 @@ from wcs_analyzer.pose import (
     RIGHT_ANKLE, RIGHT_HIP, RIGHT_SHOULDER, RIGHT_WRIST,
     FramePose, PoseData,
     compute_all_metrics,
+    compute_beat_sync,
     compute_extension_metric,
+    compute_footfall_times,
     compute_footwork_metric,
     compute_posture_metric,
     compute_slot_metric,
@@ -134,6 +136,76 @@ class TestSlot:
         assert m["linearity_r2"] == 0.0
 
 
+def _oscillating_ankle_frames(n: int, fps: float, period_frames: int, ankle_y_amp: float = 0.03) -> list[FramePose]:
+    """Build n frames with ankles oscillating on a regular period.
+
+    Rising-to-falling crossings happen once per period, at the peak
+    (minimum y). This generates predictable footfall timestamps for
+    beat-sync tests.
+    """
+    import math as _math
+    frames = []
+    for i in range(n):
+        f = _upright_frame(i / fps)
+        y = 0.95 + ankle_y_amp * _math.sin(2 * _math.pi * i / period_frames)
+        lms = list(f.landmarks)
+        lms[LEFT_ANKLE] = (lms[LEFT_ANKLE][0], y, 0.0)
+        lms[RIGHT_ANKLE] = (lms[RIGHT_ANKLE][0], y, 0.0)
+        f.landmarks = lms
+        frames.append(f)
+    return frames
+
+
+class TestFootfallTimes:
+    def test_detects_regular_footfalls(self):
+        # 4 sec @ 20 fps, ankle oscillates with period 10 frames (0.5s)
+        # → expect ~8 footfalls total
+        frames = _oscillating_ankle_frames(n=80, fps=20.0, period_frames=10)
+        falls = compute_footfall_times(frames)
+        assert 6 <= len(falls) <= 10
+        # Times should be monotonic and within the video duration
+        assert falls == sorted(falls)
+        assert all(0.0 <= t <= 4.0 for t in falls)
+
+    def test_empty_without_motion(self):
+        frames = [_upright_frame(t * 0.1) for t in range(20)]
+        assert compute_footfall_times(frames) == []
+
+    def test_too_few_frames(self):
+        assert compute_footfall_times([_upright_frame(0.0)]) == []
+
+
+class TestBeatSync:
+    def test_perfect_alignment_scores_ten(self):
+        beat_times = [0.5, 1.0, 1.5, 2.0, 2.5]
+        footfalls = [0.5, 1.0, 1.5, 2.0, 2.5]
+        result = compute_beat_sync(footfalls, beat_times, bpm=120.0)
+        assert result["timing_score"] == 10.0
+        assert result["mean_offset_ms"] == 0.0
+        assert result["on_beat_fraction"] == 1.0
+
+    def test_worst_case_off_beat_scores_zero(self):
+        # Footfalls land exactly half a beat off → score should hit 0
+        beat_times = [0.5, 1.0, 1.5, 2.0]
+        footfalls = [0.75, 1.25, 1.75]  # 250ms off at 120 BPM (half interval)
+        result = compute_beat_sync(footfalls, beat_times, bpm=120.0)
+        assert result["timing_score"] == 0.0
+        assert result["on_beat_fraction"] == 0.0
+
+    def test_partial_offset_interpolates(self):
+        beat_times = [0.5, 1.0, 1.5, 2.0]
+        # 125 ms off at 120 BPM (beat_interval = 500 ms, half = 250 ms)
+        # → normalized = 1 - 125/250 = 0.5 → score 5.0
+        footfalls = [0.625, 1.125, 1.625]
+        result = compute_beat_sync(footfalls, beat_times, bpm=120.0)
+        assert 4.5 <= result["timing_score"] <= 5.5
+
+    def test_empty_inputs(self):
+        assert compute_beat_sync([], [1.0, 2.0], bpm=120.0)["timing_score"] == 0.0
+        assert compute_beat_sync([1.0], [], bpm=120.0)["timing_score"] == 0.0
+        assert compute_beat_sync([1.0], [1.0], bpm=0.0)["timing_score"] == 0.0
+
+
 class TestPoseContext:
     def test_format_includes_all_metrics(self):
         data = PoseData(
@@ -147,6 +219,22 @@ class TestPoseContext:
         assert "Footfall" in ctx
         assert "Hip trajectory" in ctx
         assert "coverage" in ctx.lower()
+        # Without beat_times, beat-sync section should be absent
+        assert "BEAT SYNCHRONIZATION" not in ctx
+
+    def test_format_includes_beat_sync_when_audio_provided(self):
+        data = PoseData(
+            frames=_oscillating_ankle_frames(n=80, fps=20.0, period_frames=10),
+            fps=20.0, duration=4.0,
+        )
+        # 120 BPM → beats every 0.5 s; line up with the oscillation period
+        beat_times = [i * 0.5 for i in range(9)]
+        metrics = compute_all_metrics(data, beat_times=beat_times, bpm=120.0)
+        assert "beat_sync" in metrics
+        ctx = format_pose_context(metrics)
+        assert "BEAT SYNCHRONIZATION" in ctx
+        assert "Objective timing score" in ctx
+        assert "timing.score" in ctx  # model instruction is present
 
     def test_coverage_fraction(self):
         data = PoseData(
