@@ -25,6 +25,9 @@ dev = [
     "ruff>=0.4.0",
     "pyright>=1.1.350",
 ]
+pose = [
+    "mediapipe>=0.10.0",
+]
 
 [project.scripts]
 wcs-analyzer = "wcs_analyzer.cli:main"
