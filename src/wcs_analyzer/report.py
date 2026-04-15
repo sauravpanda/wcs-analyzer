@@ -33,6 +33,13 @@ def _score_color(score: float) -> str:
     return "red"
 
 
+def _ci_str(low: float, high: float) -> str:
+    """Format a confidence interval, or empty if it's effectively a point."""
+    if high - low < 0.2:
+        return ""
+    return f"[{low:.1f}\u2013{high:.1f}]"
+
+
 def _format_time(seconds: float) -> str:
     """Format seconds as M:SS."""
     m = int(seconds) // 60
@@ -59,7 +66,12 @@ def print_report(scores: FinalScores, video_name: str) -> None:
     overall_text = Text()
     overall_text.append("  Overall Score: ", style="bold")
     overall_text.append(f"{scores.overall} / 10", style=f"bold {color}")
+    ci = _ci_str(scores.overall_low, scores.overall_high)
+    if ci:
+        overall_text.append(f"  {ci}", style=f"dim {color}")
     overall_text.append(f"  ({scores.grade})", style=f"bold {color}")
+    if scores.low_confidence:
+        overall_text.append("  \u26a0 low confidence", style="bold yellow")
     console.print(Panel(overall_text, style=color))
 
     # Category scores table
@@ -67,21 +79,23 @@ def print_report(scores: FinalScores, video_name: str) -> None:
     table.add_column("Category", style="bold", width=20)
     table.add_column("Score", justify="center", width=10)
     table.add_column("", width=12)
+    table.add_column("Range", justify="center", width=12)
     table.add_column("Weight", justify="center", width=8)
 
     categories = [
-        ("Timing & Rhythm", scores.timing, "30%"),
-        ("Technique", scores.technique, "30%"),
-        ("Teamwork", scores.teamwork, "20%"),
-        ("Presentation", scores.presentation, "20%"),
+        ("Timing & Rhythm", scores.timing, scores.timing_low, scores.timing_high, "30%"),
+        ("Technique", scores.technique, scores.technique_low, scores.technique_high, "30%"),
+        ("Teamwork", scores.teamwork, scores.teamwork_low, scores.teamwork_high, "20%"),
+        ("Presentation", scores.presentation, scores.presentation_low, scores.presentation_high, "20%"),
     ]
 
-    for name, score, weight in categories:
+    for name, score, lo, hi, weight in categories:
         color = _score_color(score)
         table.add_row(
             name,
             f"[{color}]{score}[/{color}]",
             f"[{color}]{_score_bar(score)}[/{color}]",
+            f"[dim]{_ci_str(lo, hi)}[/dim]",
             weight,
         )
 
@@ -246,11 +260,22 @@ def save_report_json(scores: FinalScores, path: Path) -> None:
     data = {
         "scores": {
             "overall": scores.overall,
+            "overall_low": scores.overall_low,
+            "overall_high": scores.overall_high,
             "grade": scores.grade,
+            "low_confidence": scores.low_confidence,
             "timing": scores.timing,
+            "timing_low": scores.timing_low,
+            "timing_high": scores.timing_high,
             "technique": scores.technique,
+            "technique_low": scores.technique_low,
+            "technique_high": scores.technique_high,
             "teamwork": scores.teamwork,
+            "teamwork_low": scores.teamwork_low,
+            "teamwork_high": scores.teamwork_high,
             "presentation": scores.presentation,
+            "presentation_low": scores.presentation_low,
+            "presentation_high": scores.presentation_high,
         },
         "technique_breakdown": {
             "posture": scores.posture,

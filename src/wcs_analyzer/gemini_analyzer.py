@@ -1,6 +1,5 @@
 """Gemini-based video analysis — upload full video for native analysis."""
 
-import json
 import logging
 import time
 from pathlib import Path
@@ -8,7 +7,7 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
-from .analyzer import _extract_pattern_details, _extract_pattern_names
+from .analyzer import _default_segment, parse_segment_data, safe_parse_json
 from .exceptions import AnalysisError
 from .prompts import DANCER_CONTEXT_TEMPLATE, GEMINI_VIDEO_PROMPT, SYSTEM_PROMPT
 from .scoring import SegmentAnalysis
@@ -160,45 +159,8 @@ def _call_gemini(
 
 def _parse_response(raw: str) -> SegmentAnalysis:
     """Parse Gemini's JSON response into a SegmentAnalysis."""
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
-    text = text.strip()
-
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
+    data = safe_parse_json(raw)
+    if data is None:
         logger.warning("Failed to parse Gemini response as JSON. Raw: %s", raw[:300])
-        return SegmentAnalysis(
-            start_time=0.0, end_time=0.0,
-            timing_score=5.0, technique_score=5.0,
-            teamwork_score=5.0, presentation_score=5.0,
-            raw_data={"error": "Failed to parse response", "raw": raw[:500]},
-        )
-
-    return SegmentAnalysis(
-        start_time=0.0,
-        end_time=0.0,
-        timing_score=float(data.get("timing", {}).get("score", 5)),
-        technique_score=float(data.get("technique", {}).get("score", 5)),
-        teamwork_score=float(data.get("teamwork", {}).get("score", 5)),
-        presentation_score=float(data.get("presentation", {}).get("score", 5)),
-        off_beat_moments=data.get("timing", {}).get("off_beat_moments", []),
-        posture_score=float(data.get("technique", {}).get("posture", {}).get("score", 5)),
-        extension_score=float(data.get("technique", {}).get("extension", {}).get("score", 5)),
-        footwork_score=float(data.get("technique", {}).get("footwork", {}).get("score", 5)),
-        slot_score=float(data.get("technique", {}).get("slot", {}).get("score", 5)),
-        patterns=_extract_pattern_names(data.get("patterns_identified", data.get("patterns_seen", []))),
-        pattern_details=_extract_pattern_details(data.get("patterns_identified", data.get("patterns_seen", []))),
-        highlights=data.get("highlights", data.get("top_strengths", [])),
-        improvements=data.get("improvements", data.get("top_improvements", [])),
-        lead_technique=float(data.get("lead", {}).get("technique_score", 0)),
-        lead_presentation=float(data.get("lead", {}).get("presentation_score", 0)),
-        lead_notes=data.get("lead", {}).get("notes", ""),
-        follow_technique=float(data.get("follow", {}).get("technique_score", 0)),
-        follow_presentation=float(data.get("follow", {}).get("presentation_score", 0)),
-        follow_notes=data.get("follow", {}).get("notes", ""),
-        raw_data=data,
-    )
+        return _default_segment(0.0, 0.0, raw)
+    return parse_segment_data(data, start_time=0.0, end_time=0.0)
