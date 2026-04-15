@@ -235,7 +235,14 @@ def _analyze_with_claude_code(video_path: Path, detail: str, fps: float = 3.0, d
 
 def _analyze_with_gemini(video_path: Path, model: str, detail: str, dancers: str | None = None) -> list:
     """Run analysis via Gemini's native video understanding."""
+    from .video import get_video_duration
     from .gemini_analyzer import analyze_dance_gemini
+
+    duration = get_video_duration(video_path)
+    if duration < MIN_VIDEO_DURATION:
+        console.print(f"  [yellow]Warning: Video is very short ({duration:.0f}s). Results may be limited.[/yellow]")
+    elif duration > MAX_VIDEO_DURATION:
+        console.print(f"  [yellow]Warning: Video is long ({duration:.0f}s). Consider trimming to the key section.[/yellow]")
 
     with console.status("Uploading video to Gemini..."):
         segments = analyze_dance_gemini(video_path, model=model, detail=detail, dancers=dancers)

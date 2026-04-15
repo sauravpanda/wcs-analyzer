@@ -8,7 +8,7 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
-from .analyzer import _extract_pattern_details, _extract_pattern_names
+from .analyzer import _clamp_score, _extract_pattern_details, _extract_pattern_names
 from .exceptions import AnalysisError
 from .prompts import DANCER_CONTEXT_TEMPLATE, GEMINI_VIDEO_PROMPT, SYSTEM_PROMPT
 from .scoring import SegmentAnalysis
@@ -181,15 +181,15 @@ def _parse_response(raw: str) -> SegmentAnalysis:
     return SegmentAnalysis(
         start_time=0.0,
         end_time=0.0,
-        timing_score=float(data.get("timing", {}).get("score", 5)),
-        technique_score=float(data.get("technique", {}).get("score", 5)),
-        teamwork_score=float(data.get("teamwork", {}).get("score", 5)),
-        presentation_score=float(data.get("presentation", {}).get("score", 5)),
+        timing_score=_clamp_score(float(data.get("timing", {}).get("score", 5))),
+        technique_score=_clamp_score(float(data.get("technique", {}).get("score", 5))),
+        teamwork_score=_clamp_score(float(data.get("teamwork", {}).get("score", 5))),
+        presentation_score=_clamp_score(float(data.get("presentation", {}).get("score", 5))),
         off_beat_moments=data.get("timing", {}).get("off_beat_moments", []),
-        posture_score=float(data.get("technique", {}).get("posture", {}).get("score", 5)),
-        extension_score=float(data.get("technique", {}).get("extension", {}).get("score", 5)),
-        footwork_score=float(data.get("technique", {}).get("footwork", {}).get("score", 5)),
-        slot_score=float(data.get("technique", {}).get("slot", {}).get("score", 5)),
+        posture_score=_clamp_score(float(data.get("technique", {}).get("posture", {}).get("score", 5))),
+        extension_score=_clamp_score(float(data.get("technique", {}).get("extension", {}).get("score", 5))),
+        footwork_score=_clamp_score(float(data.get("technique", {}).get("footwork", {}).get("score", 5))),
+        slot_score=_clamp_score(float(data.get("technique", {}).get("slot", {}).get("score", 5))),
         patterns=_extract_pattern_names(data.get("patterns_identified", data.get("patterns_seen", []))),
         pattern_details=_extract_pattern_details(data.get("patterns_identified", data.get("patterns_seen", []))),
         highlights=data.get("highlights", data.get("top_strengths", [])),

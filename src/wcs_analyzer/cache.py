@@ -86,6 +86,8 @@ def dicts_to_segments(data: list[dict]) -> list:
             slot_score=d.get("slot_score", 5.0),
             off_beat_moments=d.get("off_beat_moments", []),
             patterns=d.get("patterns", []),
+            pattern_details=d.get("pattern_details", []),
+            is_summary=d.get("is_summary", False),
             highlights=d.get("highlights", []),
             improvements=d.get("improvements", []),
             raw_data=d.get("raw_data", {}),
