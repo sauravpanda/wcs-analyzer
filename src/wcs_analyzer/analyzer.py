@@ -186,15 +186,15 @@ def _parse_segment_json(raw: str, start_time: float, end_time: float) -> Segment
     return SegmentAnalysis(
         start_time=start_time,
         end_time=end_time,
-        timing_score=float(data.get("timing", {}).get("score", 5)),
-        technique_score=float(data.get("technique", {}).get("score", 5)),
-        teamwork_score=float(data.get("teamwork", {}).get("score", 5)),
-        presentation_score=float(data.get("presentation", {}).get("score", 5)),
+        timing_score=_clamp_score(float(data.get("timing", {}).get("score", 5))),
+        technique_score=_clamp_score(float(data.get("technique", {}).get("score", 5))),
+        teamwork_score=_clamp_score(float(data.get("teamwork", {}).get("score", 5))),
+        presentation_score=_clamp_score(float(data.get("presentation", {}).get("score", 5))),
         off_beat_moments=data.get("timing", {}).get("off_beat_moments", []),
-        posture_score=float(data.get("technique", {}).get("posture", {}).get("score", 5)),
-        extension_score=float(data.get("technique", {}).get("extension", {}).get("score", 5)),
-        footwork_score=float(data.get("technique", {}).get("footwork", {}).get("score", 5)),
-        slot_score=float(data.get("technique", {}).get("slot", {}).get("score", 5)),
+        posture_score=_clamp_score(float(data.get("technique", {}).get("posture", {}).get("score", 5))),
+        extension_score=_clamp_score(float(data.get("technique", {}).get("extension", {}).get("score", 5))),
+        footwork_score=_clamp_score(float(data.get("technique", {}).get("footwork", {}).get("score", 5))),
+        slot_score=_clamp_score(float(data.get("technique", {}).get("slot", {}).get("score", 5))),
         patterns=_extract_pattern_names(data.get("patterns_identified", [])),
         pattern_details=_extract_pattern_details(data.get("patterns_identified", [])),
         highlights=data.get("highlights", []),
@@ -244,11 +244,14 @@ def _get_summary(
     )
 
     result = _call_claude(client, model, [{"type": "text", "text": prompt}])
-    return _parse_segment_json(
-        result,
-        start_time=0.0,
-        end_time=audio.duration,
-    )
+    seg = _parse_segment_json(result, start_time=0.0, end_time=audio.duration)
+    seg.is_summary = True
+    return seg
+
+
+def _clamp_score(value: float) -> float:
+    """Clamp an LLM-returned score to the valid 1–10 range."""
+    return max(1.0, min(10.0, value))
 
 
 def _extract_pattern_names(patterns: list) -> list[str]:
@@ -263,11 +266,15 @@ def _extract_pattern_names(patterns: list) -> list[str]:
 
 
 def _extract_pattern_details(patterns: list) -> list[dict]:
-    """Extract rich pattern details, normalizing strings to dicts."""
+    """Extract rich pattern details, normalizing strings to dicts.
+
+    String patterns (no quality/timing data) are stored without those fields
+    so the report can show '?' rather than a misleading default.
+    """
     details = []
     for p in patterns:
         if isinstance(p, dict) and "name" in p:
             details.append(p)
         elif isinstance(p, str):
-            details.append({"name": p, "quality": "solid", "timing": "on_beat", "notes": ""})
+            details.append({"name": p, "notes": ""})
     return details
