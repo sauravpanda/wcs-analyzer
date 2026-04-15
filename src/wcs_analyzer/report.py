@@ -221,6 +221,18 @@ def print_report(scores: FinalScores, video_name: str) -> None:
             console.print(f"    [yellow]\u2022[/yellow] {s}")
         console.print()
 
+    # Per-category reasoning (chain-of-thought) if present
+    if scores.reasoning:
+        reason_table = Table(title="Judge's Reasoning", show_header=True, header_style="bold cyan")
+        reason_table.add_column("Category", style="bold", width=14)
+        reason_table.add_column("Reasoning", width=70)
+        for cat in ("timing", "technique", "teamwork", "presentation"):
+            text = scores.reasoning.get(cat)
+            if text:
+                reason_table.add_row(cat.title(), f"[dim]{text}[/dim]")
+        console.print(reason_table)
+        console.print()
+
     # Overall impression
     if scores.overall_impression:
         console.print(Panel(scores.overall_impression, title="Judge's Notes", style="dim"))
@@ -295,6 +307,7 @@ def save_report_json(scores: FinalScores, path: Path) -> None:
                 "notes": scores.follow_notes,
             },
         },
+        "reasoning": scores.reasoning,
         "off_beat_moments": scores.off_beat_moments,
         "total_off_beat": scores.total_off_beat,
         "patterns": scores.all_patterns,

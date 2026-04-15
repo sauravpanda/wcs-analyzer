@@ -114,6 +114,17 @@ def parse_segment_data(data: dict, start_time: float, end_time: float) -> Segmen
     tw_lo, tw_hi = _parse_ci(teamwork, teamwork_score)
     p_lo, p_hi = _parse_ci(presentation, presentation_score)
 
+    reasoning = {
+        cat: str(block.get("reasoning") or "").strip()
+        for cat, block in (
+            ("timing", timing),
+            ("technique", technique),
+            ("teamwork", teamwork),
+            ("presentation", presentation),
+        )
+        if block.get("reasoning")
+    }
+
     patterns_raw = data.get("patterns_identified", data.get("patterns_seen", []))
 
     return SegmentAnalysis(
@@ -135,6 +146,7 @@ def parse_segment_data(data: dict, start_time: float, end_time: float) -> Segmen
         extension_score=_sub_score(technique, "extension"),
         footwork_score=_sub_score(technique, "footwork"),
         slot_score=_sub_score(technique, "slot"),
+        reasoning=reasoning,
         off_beat_moments=timing.get("off_beat_moments", []) or [],
         patterns=_extract_pattern_names(patterns_raw),
         pattern_details=_extract_pattern_details(patterns_raw),

@@ -43,6 +43,30 @@ Score each category from 1 to 10:
 - 8-9: All-Star/Champion level, polished and consistent
 - 10: Exceptional, professional quality
 
+Use these calibration examples to anchor your scale:
+
+**Novice example (~3):** Social-dance couple. Lead drops the follow's arm \
+mid-pattern and loses the slot line; triple steps are flat-footed without \
+rolling through the foot. Follow's posture collapses at the anchor. An \
+off-beat moment happens roughly every 8-count. Typical scoring: timing 3.5, \
+technique 3.0, teamwork 4.0, presentation 3.5.
+
+**Intermediate example (~6):** Novice-division competitor. Consistent basics, \
+clean sugar pushes and side passes. Anchor steps mostly settle on beat but \
+occasionally rush into the next pattern. Some forward lean on tuck turns. \
+Teamwork is clean but reactive rather than conversational; styling is minimal. \
+Typical scoring: timing 6.5, technique 6.0, teamwork 6.5, presentation 5.5.
+
+**Champion example (~9):** Champion-tier routine. Musicality drives every \
+movement — dancers hit breaks precisely, stretch the anchor into the blues \
+pocket, layer body rolls into triples. Frame is immaculate, extension is full, \
+the slot is razor-straight. Lead shapes the music through the follow's path. \
+Typical scoring: timing 9.0, technique 9.0, teamwork 9.5, presentation 9.5.
+
+Before committing to a score for a category, you MUST write a one-sentence \
+`reasoning` field walking through the specific evidence you observed. The \
+score should follow directly from that reasoning, not the other way around.
+
 Be specific and constructive. Reference exact moments when possible. \
 Note both strengths and areas for improvement.
 
@@ -69,9 +93,10 @@ Analyze this segment of a West Coast Swing dance video.
 The frames below are sequential images from this segment of the dance. \
 Examine the dancer(s) carefully for timing, technique, teamwork, and presentation.
 
-Respond in this exact JSON format:
+Respond in this exact JSON format. Fill `reasoning` BEFORE `score` in each category:
 {{
   "timing": {{
+    "reasoning": "<one sentence walking through the beat-by-beat evidence before scoring>",
     "score": <1-10>,
     "score_low": <1-10>,
     "score_high": <1-10>,
@@ -82,6 +107,7 @@ Respond in this exact JSON format:
     "notes": "<detailed timing observations>"
   }},
   "technique": {{
+    "reasoning": "<one sentence weighing posture, extension, footwork, slot before scoring>",
     "score": <1-10>,
     "score_low": <1-10>,
     "score_high": <1-10>,
@@ -92,6 +118,7 @@ Respond in this exact JSON format:
     "notes": "<overall technique observations>"
   }},
   "teamwork": {{
+    "reasoning": "<one sentence on connection, responsiveness, shared weight before scoring>",
     "score": <1-10>,
     "score_low": <1-10>,
     "score_high": <1-10>,
@@ -99,6 +126,7 @@ Respond in this exact JSON format:
     "notes": "<overall teamwork observations>"
   }},
   "presentation": {{
+    "reasoning": "<one sentence on musicality, styling, stage presence before scoring>",
     "score": <1-10>,
     "score_low": <1-10>,
     "score_high": <1-10>,
@@ -136,9 +164,10 @@ Since you can hear the music, evaluate whether the dancers are truly on beat —
 listen for anchors landing on the downbeat, triples matching the rhythm, \
 and whether styling choices align with musical accents and breaks.
 
-Respond in this exact JSON format:
+Respond in this exact JSON format. Fill `reasoning` BEFORE `score` in each category:
 {
   "timing": {
+    "reasoning": "<one sentence walking through what you heard and saw before scoring>",
     "score": <1-10>,
     "score_low": <1-10>,
     "score_high": <1-10>,
@@ -150,6 +179,7 @@ Respond in this exact JSON format:
     "notes": "<detailed timing observations referencing what you heard in the music>"
   },
   "technique": {
+    "reasoning": "<one sentence weighing posture, extension, footwork, slot before scoring>",
     "score": <1-10>,
     "score_low": <1-10>,
     "score_high": <1-10>,
@@ -160,6 +190,7 @@ Respond in this exact JSON format:
     "notes": "<overall technique observations>"
   },
   "teamwork": {
+    "reasoning": "<one sentence on connection, responsiveness, shared weight before scoring>",
     "score": <1-10>,
     "score_low": <1-10>,
     "score_high": <1-10>,
@@ -167,6 +198,7 @@ Respond in this exact JSON format:
     "notes": "<overall teamwork observations>"
   },
   "presentation": {
+    "reasoning": "<one sentence on musicality, styling, stage presence before scoring>",
     "score": <1-10>,
     "score_low": <1-10>,
     "score_high": <1-10>,
@@ -210,9 +242,12 @@ Here are the per-segment analysis results:
 
 {segment_results}
 
-Provide a final summary analysis combining all segments. Respond in this exact JSON format:
+Provide a final summary analysis combining all segments. Fill `reasoning` BEFORE \
+`score` in each category — it should synthesize the per-segment results. Respond \
+in this exact JSON format:
 {{
   "timing": {{
+    "reasoning": "<one sentence synthesizing timing consistency across segments>",
     "score": <1-10 overall>,
     "score_low": <1-10>,
     "score_high": <1-10>,
@@ -224,6 +259,7 @@ Provide a final summary analysis combining all segments. Respond in this exact J
     "notes": "<overall timing summary>"
   }},
   "technique": {{
+    "reasoning": "<one sentence synthesizing technique across segments>",
     "score": <1-10 overall>,
     "score_low": <1-10>,
     "score_high": <1-10>,
@@ -234,6 +270,7 @@ Provide a final summary analysis combining all segments. Respond in this exact J
     "notes": "<overall technique summary>"
   }},
   "teamwork": {{
+    "reasoning": "<one sentence synthesizing teamwork across segments>",
     "score": <1-10 overall>,
     "score_low": <1-10>,
     "score_high": <1-10>,
@@ -241,6 +278,7 @@ Provide a final summary analysis combining all segments. Respond in this exact J
     "notes": "<overall teamwork summary>"
   }},
   "presentation": {{
+    "reasoning": "<one sentence synthesizing presentation across segments>",
     "score": <1-10 overall>,
     "score_low": <1-10>,
     "score_high": <1-10>,
