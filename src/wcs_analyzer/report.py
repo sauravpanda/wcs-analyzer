@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from .history import HistoryRow, Trajectory
 from .scoring import EnsembleScores, FinalScores
 
 _COMPARE_CATEGORIES = ["timing", "technique", "teamwork", "presentation"]
@@ -366,6 +367,92 @@ def save_report_csv(scores: FinalScores, path: Path) -> None:
                 seg.teamwork_score,
                 seg.presentation_score,
             ])
+
+
+def print_progress_report(
+    dancer: str,
+    rows: list[HistoryRow],
+    trajectories: dict[str, Trajectory],
+) -> None:
+    """Render a longitudinal trajectory view for one dancer."""
+    console.print()
+    header = Table.grid(padding=1)
+    header.add_column(justify="center")
+    header.add_row(Text(f"Progress for {dancer}", style="bold white"))
+    header.add_row(Text(f"{len(rows)} runs tracked", style="dim"))
+    console.print(Panel(header, style="blue", padding=(1, 2)))
+
+    if not rows:
+        console.print("  [yellow]No history for this dancer yet. "
+                      "Run `analyze --save-history <name>` first.[/yellow]")
+        return
+
+    # Timeline of runs
+    timeline = Table(title="Run Timeline", show_header=True, header_style="bold cyan")
+    timeline.add_column("#", justify="right", width=4)
+    timeline.add_column("Date", style="dim", width=20)
+    timeline.add_column("Video", width=24)
+    timeline.add_column("Provider", width=12)
+    timeline.add_column("Overall", justify="center", width=10)
+    timeline.add_column("Grade", justify="center", width=7)
+    timeline.add_column("Trend", justify="center", width=8)
+
+    prev = None
+    for i, row in enumerate(rows, 1):
+        color = _score_color(row.overall)
+        trend_str = ""
+        if prev is not None:
+            delta = row.overall - prev
+            if delta > 0.3:
+                trend_str = f"[green]+{delta:.1f}\u2191[/green]"
+            elif delta < -0.3:
+                trend_str = f"[red]{delta:.1f}\u2193[/red]"
+            else:
+                trend_str = "[dim]\u2192[/dim]"
+        prev = row.overall
+        timeline.add_row(
+            str(i),
+            row.created_at.replace("T", " ").split("+")[0],
+            row.video_name[:22] + ("…" if len(row.video_name) > 22 else ""),
+            row.provider,
+            f"[{color}]{row.overall:.1f}[/{color}]",
+            f"[{color}]{row.grade}[/{color}]",
+            trend_str,
+        )
+    console.print(timeline)
+    console.print()
+
+    # Trajectory fits
+    traj_table = Table(title="Linear Trajectories", show_header=True, header_style="bold cyan")
+    traj_table.add_column("Category", style="bold", width=14)
+    traj_table.add_column("First", justify="center", width=8)
+    traj_table.add_column("Latest", justify="center", width=8)
+    traj_table.add_column("Total \u0394", justify="center", width=10)
+    traj_table.add_column("Per-run \u0394", justify="center", width=11)
+    traj_table.add_column("Direction", width=14)
+
+    for cat in ("overall", "timing", "technique", "teamwork", "presentation"):
+        t = trajectories[cat]
+        total_delta = t.latest - t.first
+        if t.n < 2:
+            direction = "[dim]need \u2265 2 runs[/dim]"
+        elif t.slope_per_run > 0.2:
+            direction = "[green]improving[/green]"
+        elif t.slope_per_run < -0.2:
+            direction = "[red]regressing[/red]"
+        else:
+            direction = "[yellow]flat[/yellow]"
+        total_color = "green" if total_delta > 0.3 else "red" if total_delta < -0.3 else "dim"
+        traj_table.add_row(
+            cat.title(),
+            f"{t.first:.1f}",
+            f"{t.latest:.1f}",
+            f"[{total_color}]{total_delta:+.1f}[/{total_color}]",
+            f"{t.slope_per_run:+.2f}",
+            direction,
+        )
+    console.print(traj_table)
+    console.print()
 
 
 def print_ensemble_report(ensemble: EnsembleScores, video_name: str) -> None:

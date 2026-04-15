@@ -60,8 +60,9 @@ _DEFAULT_MODELS = {
 @click.option("--parallel", "-j", type=int, default=1, help="Number of videos to analyze in parallel.")
 @click.option("--pose", "use_pose", is_flag=True, default=False, help="Extract MediaPipe pose metrics and feed them as context to the LLM (Gemini only). Requires `pip install 'wcs-analyzer[pose]'`.")
 @click.option("--providers", "providers_list", default=None, help="Comma-separated list of providers for ensemble mode (e.g. 'gemini,claude-code'). Each runs independently and results are aggregated with disagreement flagging.")
+@click.option("--save-history", "save_history", default=None, help="Persist this run's scores to the longitudinal history DB under the given dancer name. Use `wcs-analyzer progress <name>` to review.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging output.")
-def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, detail: str, output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int, use_pose: bool, providers_list: str | None, verbose: bool):
+def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, detail: str, output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int, use_pose: bool, providers_list: str | None, save_history: str | None, verbose: bool):
     """Analyze one or more West Coast Swing dance videos.
 
     Pass multiple video files to analyze them all. Use -j to run in parallel.
@@ -98,15 +99,15 @@ def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, det
         use_pose = False
 
     if len(video_paths) == 1:
-        _analyze_single(video_paths[0], provider, model, detail, output, fps, dancers, no_cache, fmt, use_pose)
+        _analyze_single(video_paths[0], provider, model, detail, output, fps, dancers, no_cache, fmt, use_pose, save_history)
     else:
-        _analyze_batch(video_paths, provider, model, detail, fps, dancers, no_cache, fmt, parallel, use_pose)
+        _analyze_batch(video_paths, provider, model, detail, fps, dancers, no_cache, fmt, parallel, use_pose, save_history)
 
 
 def _analyze_single(
     video_path: Path, provider: str, model: str, detail: str,
     output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str,
-    use_pose: bool = False,
+    use_pose: bool = False, save_history: str | None = None,
 ) -> None:
     """Analyze a single video with full reporting."""
     from .scoring import compute_final_scores
@@ -141,6 +142,11 @@ def _analyze_single(
             save_to_cache(video_path, fps, detail, cache_key_model, segments_to_dicts(segments))
 
         scores = compute_final_scores(segments)
+
+        if save_history:
+            from .history import save_run
+            save_run(save_history, video_path.name, provider, scores)
+            console.print(f"  History saved for [cyan]{save_history}[/cyan]")
 
         if fmt == "csv":
             out_path = output or Path(video_path.stem + "_report.csv")
@@ -230,7 +236,7 @@ def _analyze_ensemble(
 def _analyze_batch(
     video_paths: tuple[Path, ...], provider: str, model: str, detail: str,
     fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int,
-    use_pose: bool = False,
+    use_pose: bool = False, save_history: str | None = None,
 ) -> None:
     """Analyze multiple videos, optionally in parallel."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -270,6 +276,9 @@ def _analyze_batch(
                 save_to_cache(video_path, fps, detail, cache_key_model, segments_to_dicts(segments))
 
             scores = compute_final_scores(segments)
+            if save_history:
+                from .history import save_run
+                save_run(save_history, video_path.name, provider, scores)
             return (video_path, scores, None)
         except Exception as e:
             return (video_path, None, str(e))
@@ -475,3 +484,44 @@ def timing(video_path: Path, provider: str, dancers: str | None, verbose: bool):
     except WCSAnalyzerError as e:
         console.print(f"\n  [red]Error:[/red] {e}")
         raise SystemExit(1)
+
+
+@main.command()
+@click.argument("dancer", required=True)
+def progress(dancer: str):
+    """Show longitudinal progress for a tracked dancer.
+
+    Reads the history DB populated by `analyze --save-history <name>` and
+    renders a timeline plus linear trajectory fits for each category.
+    """
+    from .history import fit_trajectories, load_history
+    from .report import print_progress_report
+
+    rows = load_history(dancer)
+    if not rows:
+        console.print(
+            f"\n  [yellow]No history for '{dancer}'.[/yellow] "
+            f"Run `wcs-analyzer analyze <video> --save-history {dancer}` first."
+        )
+        return
+
+    trajectories = fit_trajectories(rows)
+    print_progress_report(dancer, rows, trajectories)
+
+
+@main.command(name="dancers")
+def list_dancers_cmd():
+    """List every dancer tracked in the longitudinal history store."""
+    from .history import list_dancers
+
+    entries = list_dancers()
+    if not entries:
+        console.print(
+            "\n  [yellow]No dancers tracked yet.[/yellow] "
+            "Use `analyze --save-history <name>` to start."
+        )
+        return
+
+    console.print("\n  [bold]Tracked dancers:[/bold]")
+    for name, count in entries:
+        console.print(f"    [cyan]{name}[/cyan] — {count} run{'s' if count != 1 else ''}")
