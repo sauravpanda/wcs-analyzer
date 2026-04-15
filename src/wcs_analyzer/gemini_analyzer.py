@@ -26,6 +26,7 @@ def analyze_dance_gemini(
     model: str = "gemini-2.5-flash",
     detail: str = "medium",
     dancers: str | None = None,
+    pose_context: str | None = None,
 ) -> list[SegmentAnalysis]:
     """Analyze a dance video using Gemini's native video understanding.
 
@@ -63,6 +64,8 @@ def analyze_dance_gemini(
     if dancers:
         dancer_context = DANCER_CONTEXT_TEMPLATE.format(dancer_description=dancers) + "\n"
     prompt = GEMINI_VIDEO_PROMPT.replace("{dancer_context}", dancer_context)
+    if pose_context:
+        prompt = f"{pose_context}\n\n{prompt}"
     logger.info(
         "Sending video to Gemini (%s, %d fps, %s resolution)",
         model, fps, detail,

@@ -58,8 +58,9 @@ _DEFAULT_MODELS = {
 @click.option("--no-cache", is_flag=True, default=False, help="Skip cache and force re-analysis.")
 @click.option("--format", "fmt", type=click.Choice(["terminal", "json", "csv"]), default="terminal", help="Output format.")
 @click.option("--parallel", "-j", type=int, default=1, help="Number of videos to analyze in parallel.")
+@click.option("--pose", "use_pose", is_flag=True, default=False, help="Extract MediaPipe pose metrics and feed them as context to the LLM (Gemini only). Requires `pip install 'wcs-analyzer[pose]'`.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging output.")
-def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, detail: str, output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int, verbose: bool):
+def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, detail: str, output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int, use_pose: bool, verbose: bool):
     """Analyze one or more West Coast Swing dance videos.
 
     Pass multiple video files to analyze them all. Use -j to run in parallel.
@@ -73,15 +74,23 @@ def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, det
     _setup_logging(verbose)
     model = model or _DEFAULT_MODELS[provider]
 
+    if use_pose and provider != "gemini":
+        console.print(
+            "  [yellow]--pose currently only affects the gemini provider; "
+            "ignoring for this run.[/yellow]"
+        )
+        use_pose = False
+
     if len(video_paths) == 1:
-        _analyze_single(video_paths[0], provider, model, detail, output, fps, dancers, no_cache, fmt)
+        _analyze_single(video_paths[0], provider, model, detail, output, fps, dancers, no_cache, fmt, use_pose)
     else:
-        _analyze_batch(video_paths, provider, model, detail, fps, dancers, no_cache, fmt, parallel)
+        _analyze_batch(video_paths, provider, model, detail, fps, dancers, no_cache, fmt, parallel, use_pose)
 
 
 def _analyze_single(
     video_path: Path, provider: str, model: str, detail: str,
     output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str,
+    use_pose: bool = False,
 ) -> None:
     """Analyze a single video with full reporting."""
     from .scoring import compute_final_scores
@@ -100,11 +109,13 @@ def _analyze_single(
         if not no_cache:
             cached = get_cached_result(video_path, fps, detail, cache_key_model)
 
+        pose_context = _compute_pose_context(video_path) if use_pose else None
+
         if cached is not None:
             console.print("  [cyan]Using cached analysis result[/cyan]")
             segments = dicts_to_segments(cached)
         elif provider == "gemini":
-            segments = _analyze_with_gemini(video_path, model, detail, dancers)
+            segments = _analyze_with_gemini(video_path, model, detail, dancers, pose_context)
         elif provider == "claude-code":
             segments = _analyze_with_claude_code(video_path, detail, fps, dancers)
         else:
@@ -137,6 +148,7 @@ def _analyze_single(
 def _analyze_batch(
     video_paths: tuple[Path, ...], provider: str, model: str, detail: str,
     fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int,
+    use_pose: bool = False,
 ) -> None:
     """Analyze multiple videos, optionally in parallel."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -161,10 +173,12 @@ def _analyze_batch(
             if not no_cache:
                 cached = get_cached_result(video_path, fps, detail, cache_key_model)
 
+            pose_context = _compute_pose_context(video_path) if use_pose else None
+
             if cached is not None:
                 segments = dicts_to_segments(cached)
             elif provider == "gemini":
-                segments = _analyze_with_gemini(video_path, model, detail, dancers)
+                segments = _analyze_with_gemini(video_path, model, detail, dancers, pose_context)
             elif provider == "claude-code":
                 segments = _analyze_with_claude_code(video_path, detail, fps, dancers)
             else:
@@ -233,14 +247,43 @@ def _analyze_with_claude_code(video_path: Path, detail: str, fps: float = 3.0, d
     return segments
 
 
-def _analyze_with_gemini(video_path: Path, model: str, detail: str, dancers: str | None = None) -> list:
+def _analyze_with_gemini(
+    video_path: Path, model: str, detail: str,
+    dancers: str | None = None, pose_context: str | None = None,
+) -> list:
     """Run analysis via Gemini's native video understanding."""
     from .gemini_analyzer import analyze_dance_gemini
 
     with console.status("Uploading video to Gemini..."):
-        segments = analyze_dance_gemini(video_path, model=model, detail=detail, dancers=dancers)
+        segments = analyze_dance_gemini(
+            video_path, model=model, detail=detail,
+            dancers=dancers, pose_context=pose_context,
+        )
     console.print("  Gemini analyzed full video (native video + audio)")
     return segments
+
+
+def _compute_pose_context(video_path: Path) -> str | None:
+    """Extract pose landmarks, compute metrics, and format for the LLM prompt.
+
+    Returns None (with a warning) if MediaPipe is not installed so the
+    analysis can still proceed without pose guidance.
+    """
+    from .pose import PoseUnavailableError, compute_all_metrics, extract_poses, format_pose_context
+
+    try:
+        with console.status("Extracting pose landmarks (MediaPipe)..."):
+            pose_data = extract_poses(video_path)
+    except PoseUnavailableError as e:
+        console.print(f"  [yellow]Pose skipped:[/yellow] {e}")
+        return None
+
+    metrics = compute_all_metrics(pose_data)
+    console.print(
+        f"  Pose metrics: posture {metrics['posture'].get('mean_deg', 0):.1f}° "
+        f"deviation, coverage {pose_data.coverage * 100:.0f}%"
+    )
+    return format_pose_context(metrics)
 
 
 def _analyze_with_claude(video_path: Path, model: str, detail: str, fps: float, dancers: str | None = None) -> list:
