@@ -42,6 +42,7 @@ class HistoryRow:
     technique: float
     teamwork: float
     presentation: float
+    estimated_cost: float = 0.0
 
 
 SCHEMA = """
@@ -56,11 +57,20 @@ CREATE TABLE IF NOT EXISTS runs (
     timing      REAL NOT NULL,
     technique   REAL NOT NULL,
     teamwork    REAL NOT NULL,
-    presentation REAL NOT NULL
+    presentation REAL NOT NULL,
+    estimated_cost REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_runs_dancer_created
     ON runs(dancer, created_at);
 """
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Apply lazy schema migrations to an existing database."""
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
+    if "estimated_cost" not in cols:
+        conn.execute("ALTER TABLE runs ADD COLUMN estimated_cost REAL NOT NULL DEFAULT 0")
+        conn.commit()
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -68,6 +78,7 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
 
 
@@ -84,13 +95,15 @@ def save_run(
     with _connect(db) as conn:
         conn.execute(
             "INSERT INTO runs (dancer, video_name, created_at, provider, "
-            "overall, grade, timing, technique, teamwork, presentation) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "overall, grade, timing, technique, teamwork, presentation, "
+            "estimated_cost) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 dancer, video_name, now, provider,
                 scores.overall, scores.grade,
                 scores.timing, scores.technique,
                 scores.teamwork, scores.presentation,
+                scores.usage.estimated_cost,
             ),
         )
         conn.commit()
@@ -104,7 +117,7 @@ def load_history(dancer: str, db_path: Path | None = None) -> list[HistoryRow]:
     with _connect(db) as conn:
         rows = conn.execute(
             "SELECT dancer, video_name, created_at, provider, overall, grade, "
-            "timing, technique, teamwork, presentation "
+            "timing, technique, teamwork, presentation, estimated_cost "
             "FROM runs WHERE dancer = ? ORDER BY created_at ASC",
             (dancer,),
         ).fetchall()

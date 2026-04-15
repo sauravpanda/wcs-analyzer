@@ -10,6 +10,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .history import HistoryRow, Trajectory
+from .pricing import pricing_updated_on
 from .scoring import EnsembleScores, FinalScores
 
 _COMPARE_CATEGORIES = ["timing", "technique", "teamwork", "presentation"]
@@ -238,6 +239,25 @@ def print_report(scores: FinalScores, video_name: str) -> None:
     if scores.overall_impression:
         console.print(Panel(scores.overall_impression, title="Judge's Notes", style="dim"))
 
+    # API usage and estimated cost
+    usage = scores.usage
+    if usage.input_tokens or usage.output_tokens:
+        total_tokens = usage.input_tokens + usage.output_tokens
+        cost_str = (
+            f"~${usage.estimated_cost:.4f}"
+            if usage.pricing_known else
+            f"~${usage.estimated_cost:.4f} [yellow](unknown model {usage.model})[/yellow]"
+        )
+        console.print(
+            f"\n  [bold]API usage:[/bold] "
+            f"{usage.input_tokens:,} in + {usage.output_tokens:,} out "
+            f"= {total_tokens:,} tokens"
+        )
+        console.print(
+            f"  [bold]Estimated cost:[/bold] {cost_str}  "
+            f"[dim](pricing as of {pricing_updated_on()}; set WCS_PRICING_FILE to override)[/dim]"
+        )
+
 
 def print_timing_report(scores: FinalScores, video_name: str) -> None:
     """Print a timing-focused report."""
@@ -309,6 +329,14 @@ def save_report_json(scores: FinalScores, path: Path) -> None:
             },
         },
         "reasoning": scores.reasoning,
+        "usage": {
+            "input_tokens": scores.usage.input_tokens,
+            "output_tokens": scores.usage.output_tokens,
+            "estimated_cost_usd": scores.usage.estimated_cost,
+            "model": scores.usage.model,
+            "pricing_known": scores.usage.pricing_known,
+            "pricing_updated_on": pricing_updated_on(),
+        },
         "off_beat_moments": scores.off_beat_moments,
         "total_off_beat": scores.total_off_beat,
         "patterns": scores.all_patterns,
@@ -391,11 +419,12 @@ def print_progress_report(
     timeline = Table(title="Run Timeline", show_header=True, header_style="bold cyan")
     timeline.add_column("#", justify="right", width=4)
     timeline.add_column("Date", style="dim", width=20)
-    timeline.add_column("Video", width=24)
+    timeline.add_column("Video", width=22)
     timeline.add_column("Provider", width=12)
-    timeline.add_column("Overall", justify="center", width=10)
-    timeline.add_column("Grade", justify="center", width=7)
+    timeline.add_column("Overall", justify="center", width=9)
+    timeline.add_column("Grade", justify="center", width=6)
     timeline.add_column("Trend", justify="center", width=8)
+    timeline.add_column("Cost", justify="right", width=10)
 
     prev = None
     for i, row in enumerate(rows, 1):
@@ -410,16 +439,25 @@ def print_progress_report(
             else:
                 trend_str = "[dim]\u2192[/dim]"
         prev = row.overall
+        cost_str = f"${row.estimated_cost:.4f}" if row.estimated_cost > 0 else "[dim]—[/dim]"
         timeline.add_row(
             str(i),
             row.created_at.replace("T", " ").split("+")[0],
-            row.video_name[:22] + ("…" if len(row.video_name) > 22 else ""),
+            row.video_name[:20] + ("…" if len(row.video_name) > 20 else ""),
             row.provider,
             f"[{color}]{row.overall:.1f}[/{color}]",
             f"[{color}]{row.grade}[/{color}]",
             trend_str,
+            cost_str,
         )
     console.print(timeline)
+
+    total_spend = sum(r.estimated_cost for r in rows)
+    if total_spend > 0:
+        console.print(
+            f"  [bold]Total spent on {dancer}:[/bold] "
+            f"[yellow]~${total_spend:.4f}[/yellow] across {len(rows)} runs"
+        )
     console.print()
 
     # Trajectory fits

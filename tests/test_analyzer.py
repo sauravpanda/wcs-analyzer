@@ -86,20 +86,33 @@ class TestParseSegmentJson:
         assert result.end_time == 6.5
 
 
+def _mock_usage(input_tokens: int = 100, output_tokens: int = 200) -> MagicMock:
+    usage = MagicMock()
+    usage.input_tokens = input_tokens
+    usage.output_tokens = output_tokens
+    return usage
+
+
 class TestCallClaude:
     def test_successful_call(self):
         mock_client = MagicMock()
         mock_block = MagicMock()
         mock_block.text = "response text"
-        mock_client.messages.create.return_value = MagicMock(content=[mock_block])
+        mock_client.messages.create.return_value = MagicMock(
+            content=[mock_block], usage=_mock_usage(150, 300),
+        )
 
-        result = _call_claude(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "hi"}])
-        assert result == "response text"
+        text, usage = _call_claude(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "hi"}])
+        assert text == "response text"
+        assert usage.input_tokens == 150
+        assert usage.output_tokens == 300
+        # Sonnet pricing is $3/M input + $15/M output
+        assert usage.estimated_cost > 0
 
     def test_unexpected_block_type_raises(self):
         mock_client = MagicMock()
         mock_block = MagicMock(spec=[])  # no .text attribute
-        mock_client.messages.create.return_value = MagicMock(content=[mock_block])
+        mock_client.messages.create.return_value = MagicMock(content=[mock_block], usage=_mock_usage())
 
         with pytest.raises(AnalysisError, match="Unexpected response block type"):
             _call_claude(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "hi"}])
@@ -114,11 +127,11 @@ class TestCallClaude:
 
         mock_client.messages.create.side_effect = [
             anth.RateLimitError.__new__(anth.RateLimitError),
-            MagicMock(content=[mock_block]),
+            MagicMock(content=[mock_block], usage=_mock_usage()),
         ]
 
-        result = _call_claude(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "hi"}])
-        assert result == "ok"
+        text, _ = _call_claude(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "hi"}])
+        assert text == "ok"
         mock_sleep.assert_called_once_with(2)  # 2^(0+1) = 2
 
     @patch("wcs_analyzer.analyzer.time.sleep")
@@ -277,11 +290,16 @@ class TestSafeParseJson:
         assert safe_parse_json("[1, 2, 3]") is None
 
 
+def _usage(input_tokens: int = 100, output_tokens: int = 200, model: str = "claude-sonnet-4-6"):
+    from wcs_analyzer.pricing import UsageTotals
+    return UsageTotals.from_counts(model, input_tokens, output_tokens)
+
+
 class TestCallAndParseRetry:
     @patch("wcs_analyzer.analyzer._call_claude")
     def test_retry_on_parse_failure(self, mock_call: MagicMock):
         from wcs_analyzer.analyzer import _call_and_parse
-        mock_call.side_effect = ["not json", VALID_RESPONSE]
+        mock_call.side_effect = [("not json", _usage()), (VALID_RESPONSE, _usage(500, 1000))]
         mock_client = MagicMock()
         parsed = _call_and_parse(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "x"}], 0.0, 4.0)
         assert parsed.timing_score == 7.5
@@ -289,23 +307,28 @@ class TestCallAndParseRetry:
         # Second call should include the corrective hint
         second_content = mock_call.call_args_list[1][0][2]
         assert any("could not be parsed" in str(c) for c in second_content)
+        # Usage is summed across both calls
+        assert parsed.usage.input_tokens == 600
+        assert parsed.usage.output_tokens == 1200
 
     @patch("wcs_analyzer.analyzer._call_claude")
     def test_retry_failure_uses_default(self, mock_call: MagicMock):
         from wcs_analyzer.analyzer import _call_and_parse
-        mock_call.side_effect = ["not json", "still not json"]
+        mock_call.side_effect = [("not json", _usage()), ("still not json", _usage())]
         mock_client = MagicMock()
         parsed = _call_and_parse(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "x"}], 0.0, 4.0)
         assert parsed.timing_score == 5.0
         assert "error" in parsed.raw_data
         assert mock_call.call_count == 2
+        # Even failed runs accumulate cost
+        assert parsed.usage.input_tokens == 200
 
 
 class TestAnalyzeDance:
     @patch("wcs_analyzer.analyzer._call_claude")
     @patch("wcs_analyzer.analyzer.anthropic.Anthropic")
     def test_single_phrase_no_summary(self, mock_anthropic_cls: MagicMock, mock_call: MagicMock):
-        mock_call.return_value = VALID_RESPONSE
+        mock_call.return_value = (VALID_RESPONSE, _usage())
 
         frames = FrameData(
             images=["img1", "img2"],
@@ -326,7 +349,7 @@ class TestAnalyzeDance:
     @patch("wcs_analyzer.analyzer._call_claude")
     @patch("wcs_analyzer.analyzer.anthropic.Anthropic")
     def test_multiple_phrases_include_summary(self, mock_anthropic_cls: MagicMock, mock_call: MagicMock):
-        mock_call.return_value = VALID_RESPONSE
+        mock_call.return_value = (VALID_RESPONSE, _usage())
 
         frames = FrameData(
             images=[f"img_{i}" for i in range(20)],
@@ -406,12 +429,12 @@ class TestParsePatternTimeline:
 class TestDetectPatternTimeline:
     @patch("wcs_analyzer.analyzer._call_claude")
     def test_successful_detection(self, mock_call: MagicMock):
-        mock_call.return_value = json.dumps({
+        mock_call.return_value = (json.dumps({
             "patterns": [
                 {"start_time": 0.0, "end_time": 3.0, "name": "sugar push", "confidence": 0.85},
                 {"start_time": 3.0, "end_time": 7.5, "name": "whip", "confidence": 0.7},
             ]
-        })
+        }), _usage())
         frames = FrameData(
             images=["img"] * 20, timestamps=[i * 0.5 for i in range(20)],
             fps_original=30.0, fps_sampled=2.0, duration=10.0, width=640, height=480,
@@ -423,7 +446,7 @@ class TestDetectPatternTimeline:
 
     @patch("wcs_analyzer.analyzer._call_claude")
     def test_unparseable_returns_empty(self, mock_call: MagicMock):
-        mock_call.return_value = "garbage not json"
+        mock_call.return_value = ("garbage not json", _usage())
         frames = FrameData(
             images=["img"] * 5, timestamps=[0.0, 1.0, 2.0, 3.0, 4.0],
             fps_original=30.0, fps_sampled=1.0, duration=5.0, width=640, height=480,
@@ -436,7 +459,7 @@ class TestDetectPatternTimeline:
 
     @patch("wcs_analyzer.analyzer._call_claude")
     def test_subsamples_long_videos(self, mock_call: MagicMock):
-        mock_call.return_value = json.dumps({"patterns": []})
+        mock_call.return_value = (json.dumps({"patterns": []}), _usage())
         frames = FrameData(
             images=[f"i{i}" for i in range(200)], timestamps=[i * 0.1 for i in range(200)],
             fps_original=30.0, fps_sampled=10.0, duration=20.0, width=640, height=480,

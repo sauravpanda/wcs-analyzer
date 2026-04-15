@@ -9,6 +9,7 @@ from google.genai import types
 
 from .analyzer import _default_segment, parse_segment_data, safe_parse_json
 from .exceptions import AnalysisError
+from .pricing import UsageTotals
 from .prompts import DANCER_CONTEXT_TEMPLATE, GEMINI_VIDEO_PROMPT, SYSTEM_PROMPT
 from .scoring import SegmentAnalysis
 
@@ -71,12 +72,12 @@ def analyze_dance_gemini(
         model, fps, detail,
     )
 
-    result = _call_gemini(
+    result, usage = _call_gemini(
         client, model,
         contents=[video_part, prompt],
         resolution=resolution,
     )
-    parsed = _parse_response(result)
+    parsed = _parse_response(result, usage)
     return [parsed]
 
 
@@ -132,8 +133,8 @@ def _call_gemini(
     contents: list,
     resolution: types.MediaResolution,
     max_retries: int = 3,
-) -> str:
-    """Call Gemini API with retries."""
+) -> tuple[str, UsageTotals]:
+    """Call Gemini API with retries, returning response text + usage."""
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
@@ -146,7 +147,11 @@ def _call_gemini(
                 ),
             )
             if response.text:
-                return response.text
+                meta = getattr(response, "usage_metadata", None)
+                input_tokens = int(getattr(meta, "prompt_token_count", 0) or 0)
+                output_tokens = int(getattr(meta, "candidates_token_count", 0) or 0)
+                usage = UsageTotals.from_counts(model, input_tokens, output_tokens)
+                return response.text, usage
             raise AnalysisError("Gemini returned empty response")
         except Exception as e:
             # Retry on transient errors
@@ -157,13 +162,13 @@ def _call_gemini(
                 time.sleep(wait)
             else:
                 raise AnalysisError(f"Gemini API error: {e}") from e
-    return ""
+    return "", UsageTotals(model=model)
 
 
-def _parse_response(raw: str) -> SegmentAnalysis:
+def _parse_response(raw: str, usage: UsageTotals | None = None) -> SegmentAnalysis:
     """Parse Gemini's JSON response into a SegmentAnalysis."""
     data = safe_parse_json(raw)
     if data is None:
         logger.warning("Failed to parse Gemini response as JSON. Raw: %s", raw[:300])
-        return _default_segment(0.0, 0.0, raw)
-    return parse_segment_data(data, start_time=0.0, end_time=0.0)
+        return _default_segment(0.0, 0.0, raw, usage=usage)
+    return parse_segment_data(data, start_time=0.0, end_time=0.0, usage=usage)

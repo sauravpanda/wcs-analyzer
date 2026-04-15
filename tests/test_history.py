@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from wcs_analyzer.history import (
     HistoryRow,
     _fit_linear,
@@ -109,3 +111,77 @@ def test_history_row_fields():
     )
     assert row.dancer == "alice"
     assert row.overall == 7.0
+
+
+# ---- Cost tracking tests --------------------------------------------------
+
+
+def test_save_run_persists_cost(tmp_path: Path):
+    from wcs_analyzer.pricing import UsageTotals
+    db = tmp_path / "history.db"
+    scores = _fs(overall=7.5)
+    scores.usage = UsageTotals.from_counts("gemini-2.5-flash", 10_000, 5_000)
+    save_run("alice", "c1.mp4", "gemini", scores, db_path=db)
+
+    rows = load_history("alice", db_path=db)
+    assert len(rows) == 1
+    assert rows[0].estimated_cost > 0
+    assert rows[0].estimated_cost == scores.usage.estimated_cost
+
+
+def test_lazy_migration_adds_cost_column(tmp_path: Path):
+    """An old DB without estimated_cost should be migrated on connect."""
+    import sqlite3
+    db = tmp_path / "legacy.db"
+    # Create a pre-migration table shape (no estimated_cost column)
+    conn = sqlite3.connect(db)
+    conn.execute("""
+        CREATE TABLE runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dancer TEXT NOT NULL,
+            video_name TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            overall REAL NOT NULL,
+            grade TEXT NOT NULL,
+            timing REAL NOT NULL,
+            technique REAL NOT NULL,
+            teamwork REAL NOT NULL,
+            presentation REAL NOT NULL
+        )
+    """)
+    conn.execute(
+        "INSERT INTO runs (dancer, video_name, created_at, provider, overall, "
+        "grade, timing, technique, teamwork, presentation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("alice", "old.mp4", "2026-01-01T00:00:00+00:00", "gemini", 7.0, "B-", 7.0, 7.0, 7.0, 7.0),
+    )
+    conn.commit()
+    conn.close()
+
+    # Connecting via history.load_history should trigger the lazy migration
+    rows = load_history("alice", db_path=db)
+    assert len(rows) == 1
+    # Legacy rows default to 0 cost
+    assert rows[0].estimated_cost == 0.0
+
+    # New saves should work and store cost
+    save_run("alice", "new.mp4", "gemini", _fs(overall=8.0), db_path=db)
+    rows = load_history("alice", db_path=db)
+    assert len(rows) == 2
+    assert rows[0].video_name == "old.mp4"
+    assert rows[1].video_name == "new.mp4"
+
+
+def test_progress_report_sums_total_spend(tmp_path: Path):
+    from wcs_analyzer.pricing import UsageTotals
+    db = tmp_path / "history.db"
+    for i, input_tok in enumerate([1000, 2000, 3000]):
+        s = _fs(overall=7.0 + i * 0.3)
+        s.usage = UsageTotals.from_counts("gemini-2.5-flash", input_tok, input_tok // 2)
+        save_run("alice", f"c{i}.mp4", "gemini", s, db_path=db)
+
+    rows = load_history("alice", db_path=db)
+    total = sum(r.estimated_cost for r in rows)
+    # Non-zero total that matches the sum of individual run costs
+    assert total > 0
+    assert total == pytest.approx(sum(r.estimated_cost for r in rows))

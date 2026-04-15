@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .analyzer import parse_segment_data
 from .exceptions import AnalysisError
+from .pricing import UsageTotals
 from .prompts import DANCER_CONTEXT_TEMPLATE, SYSTEM_PROMPT
 from .scoring import SegmentAnalysis
 from .video import extract_frames
@@ -173,13 +174,13 @@ def analyze_dance_claude_code(
 
         # Call claude CLI
         logger.info("Invoking Claude Code CLI...")
-        result = _call_claude_cli(claude_path, prompt)
+        result, usage = _call_claude_cli(claude_path, prompt)
 
-    return [_parse_response(result, frames.duration)]
+    return [_parse_response(result, frames.duration, usage)]
 
 
-def _call_claude_cli(claude_path: str, prompt: str, timeout: int = 300) -> dict:
-    """Call the claude CLI and return parsed JSON response."""
+def _call_claude_cli(claude_path: str, prompt: str, timeout: int = 300) -> tuple[dict, UsageTotals]:
+    """Call the claude CLI and return (parsed JSON, usage)."""
     cmd = [
         claude_path,
         "-p", prompt,
@@ -214,16 +215,18 @@ def _call_claude_cli(claude_path: str, prompt: str, timeout: int = 300) -> dict:
         error_msg = envelope.get("result", "") or proc.stderr or "unknown error"
         raise AnalysisError(f"Claude Code CLI failed: {error_msg}")
 
+    usage = _usage_from_envelope(envelope)
+
     # The structured output is in the "result" field
     result_text = envelope.get("result", "")
 
     # Try to parse the result as JSON directly (from --json-schema)
     if isinstance(result_text, dict):
-        return result_text
+        return result_text, usage
 
     # Sometimes it comes back as a JSON string
     try:
-        return json.loads(result_text)  # type: ignore[no-any-return]
+        return json.loads(result_text), usage  # type: ignore[no-any-return]
     except (json.JSONDecodeError, TypeError):
         # Try to extract JSON from markdown fences
         text = str(result_text).strip()
@@ -232,11 +235,36 @@ def _call_claude_cli(claude_path: str, prompt: str, timeout: int = 300) -> dict:
         if text.endswith("```"):
             text = text[:-3]
         try:
-            return json.loads(text.strip())  # type: ignore[no-any-return]
+            return json.loads(text.strip()), usage  # type: ignore[no-any-return]
         except json.JSONDecodeError:
             raise AnalysisError(f"Could not parse analysis result: {str(result_text)[:300]}")
 
 
-def _parse_response(data: dict, duration: float) -> SegmentAnalysis:
+def _usage_from_envelope(envelope: dict) -> UsageTotals:
+    """Extract token counts and total cost from the claude CLI envelope.
+
+    The CLI reports `total_cost_usd` directly (authoritative, matches
+    actual billing), so we prefer that over re-estimating from our own
+    price table. Falls back to token-based estimation if the envelope
+    doesn't include a cost.
+    """
+    usage_block = envelope.get("usage") or {}
+    input_tokens = int(usage_block.get("input_tokens", 0) or 0)
+    output_tokens = int(usage_block.get("output_tokens", 0) or 0)
+    model = envelope.get("model", "") or ""
+
+    cost = envelope.get("total_cost_usd")
+    if isinstance(cost, (int, float)) and cost >= 0:
+        return UsageTotals(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_cost=round(float(cost), 4),
+            model=model or "claude-code",
+            pricing_known=True,
+        )
+    return UsageTotals.from_counts(model or "claude-sonnet-4-6", input_tokens, output_tokens)
+
+
+def _parse_response(data: dict, duration: float, usage: UsageTotals | None = None) -> SegmentAnalysis:
     """Convert parsed JSON dict into a SegmentAnalysis."""
-    return parse_segment_data(data, start_time=0.0, end_time=duration)
+    return parse_segment_data(data, start_time=0.0, end_time=duration, usage=usage)
