@@ -7,7 +7,8 @@ import pytest
 
 from wcs_analyzer.analyzer import (
     _parse_segment_json, _call_claude, _effective_max_frames, analyze_dance,
-    clamp_score, clamp_partner, parse_segment_data, safe_parse_json,
+    _parse_pattern_timeline, clamp_score, clamp_partner, detect_pattern_timeline,
+    parse_segment_data, safe_parse_json,
     MAX_FRAMES_PER_CALL, _IMAGE_TOKEN_BUDGET, _TOKENS_PER_IMAGE_ESTIMATE,
 )
 from wcs_analyzer.audio import AudioFeatures
@@ -346,3 +347,102 @@ class TestAnalyzeDance:
         results = analyze_dance(frames, audio)
         # Multiple phrases → last result is summary
         assert len(results) >= 3  # at least 2 phrases + 1 summary
+
+
+# ---- Pattern segmentation tests -------------------------------------------
+
+
+class TestParsePatternTimeline:
+    def test_valid_timeline_parsed_and_sorted(self):
+        items = [
+            {"start_time": 3.5, "end_time": 7.0, "name": "whip", "confidence": 0.8},
+            {"start_time": 0.0, "end_time": 3.5, "name": "sugar push", "confidence": 0.9},
+        ]
+        segs = _parse_pattern_timeline(items, duration=10.0)
+        assert len(segs) == 2
+        assert segs[0].name == "sugar push"
+        assert segs[0].start_time == 0.0
+        assert segs[1].name == "whip"
+
+    def test_inverted_range_dropped(self):
+        items = [
+            {"start_time": 3.0, "end_time": 2.0, "name": "bad"},
+            {"start_time": 0.0, "end_time": 2.0, "name": "good"},
+        ]
+        segs = _parse_pattern_timeline(items, duration=10.0)
+        assert len(segs) == 1
+        assert segs[0].name == "good"
+
+    def test_clamps_to_duration(self):
+        items = [{"start_time": 0.0, "end_time": 15.0, "name": "sugar push"}]
+        segs = _parse_pattern_timeline(items, duration=10.0)
+        assert segs[0].end_time == 10.0
+
+    def test_invalid_confidence_defaults_to_zero(self):
+        items = [{"start_time": 0.0, "end_time": 2.0, "name": "p", "confidence": "bad"}]
+        segs = _parse_pattern_timeline(items, duration=10.0)
+        assert segs[0].confidence == 0.0
+
+    def test_confidence_clamped_to_unit_interval(self):
+        items = [
+            {"start_time": 0.0, "end_time": 1.0, "name": "a", "confidence": 1.5},
+            {"start_time": 1.0, "end_time": 2.0, "name": "b", "confidence": -0.3},
+        ]
+        segs = _parse_pattern_timeline(items, duration=10.0)
+        assert segs[0].confidence == 1.0
+        assert segs[1].confidence == 0.0
+
+    def test_missing_name_defaults_to_unknown(self):
+        items = [{"start_time": 0.0, "end_time": 1.0}]
+        segs = _parse_pattern_timeline(items, duration=10.0)
+        assert segs[0].name == "unknown"
+
+    def test_non_dict_items_skipped(self):
+        items = ["not a dict", None, {"start_time": 0.0, "end_time": 1.0, "name": "ok"}]
+        segs = _parse_pattern_timeline(items, duration=10.0)
+        assert len(segs) == 1
+
+
+class TestDetectPatternTimeline:
+    @patch("wcs_analyzer.analyzer._call_claude")
+    def test_successful_detection(self, mock_call: MagicMock):
+        mock_call.return_value = json.dumps({
+            "patterns": [
+                {"start_time": 0.0, "end_time": 3.0, "name": "sugar push", "confidence": 0.85},
+                {"start_time": 3.0, "end_time": 7.5, "name": "whip", "confidence": 0.7},
+            ]
+        })
+        frames = FrameData(
+            images=["img"] * 20, timestamps=[i * 0.5 for i in range(20)],
+            fps_original=30.0, fps_sampled=2.0, duration=10.0, width=640, height=480,
+        )
+        client = MagicMock()
+        segs = detect_pattern_timeline(client, "claude-sonnet-4-6", frames)
+        assert len(segs) == 2
+        assert segs[0].name == "sugar push"
+
+    @patch("wcs_analyzer.analyzer._call_claude")
+    def test_unparseable_returns_empty(self, mock_call: MagicMock):
+        mock_call.return_value = "garbage not json"
+        frames = FrameData(
+            images=["img"] * 5, timestamps=[0.0, 1.0, 2.0, 3.0, 4.0],
+            fps_original=30.0, fps_sampled=1.0, duration=5.0, width=640, height=480,
+        )
+        assert detect_pattern_timeline(MagicMock(), "claude-sonnet-4-6", frames) == []
+
+    def test_empty_frames_returns_empty(self):
+        frames = FrameData()
+        assert detect_pattern_timeline(MagicMock(), "claude-sonnet-4-6", frames) == []
+
+    @patch("wcs_analyzer.analyzer._call_claude")
+    def test_subsamples_long_videos(self, mock_call: MagicMock):
+        mock_call.return_value = json.dumps({"patterns": []})
+        frames = FrameData(
+            images=[f"i{i}" for i in range(200)], timestamps=[i * 0.1 for i in range(200)],
+            fps_original=30.0, fps_sampled=10.0, duration=20.0, width=640, height=480,
+        )
+        detect_pattern_timeline(MagicMock(), "claude-sonnet-4-6", frames, max_frames=10)
+        # Verify the content passed had <= 10 image blocks (plus 1 text block)
+        content = mock_call.call_args[0][2]
+        image_blocks = [c for c in content if c.get("type") == "image"]
+        assert len(image_blocks) == 10

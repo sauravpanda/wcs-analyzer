@@ -1,5 +1,36 @@
 """WCS-specific prompts for dance video analysis."""
 
+PATTERN_SEGMENTATION_PROMPT = """\
+You are segmenting a West Coast Swing dance video into its constituent \
+patterns. Look at the provided frames (in temporal order) and identify the \
+sequence of patterns the couple performs.
+
+Common WCS patterns:
+- sugar push (6-count, in-place)
+- left side pass, right side pass (6-count)
+- tuck turn (6-count)
+- whip (8-count, rotational)
+- basket whip, reverse whip
+- starter step, anchor-only / in-place variations
+
+Return a JSON timeline. Each entry covers a contiguous time range; the \
+ranges must not overlap and should cover the entire video from start to end.
+
+Respond in this exact JSON format. No prose, no markdown:
+{{
+  "patterns": [
+    {{"start_time": 0.0, "end_time": 3.2, "name": "sugar push", "confidence": 0.8}},
+    {{"start_time": 3.2, "end_time": 7.0, "name": "left side pass", "confidence": 0.7}}
+  ]
+}}
+
+Confidence is 0-1; use 1.0 when you're certain, ~0.5 when you can only \
+narrow it down to a family, and < 0.3 when the pattern is unclear. The \
+dance is {duration:.1f} seconds long. Use {num_frames} sampled frames \
+to identify approximately {expected_count} patterns.
+"""
+
+
 SYSTEM_PROMPT = """\
 You are an expert West Coast Swing (WCS) dance judge with decades of experience \
 evaluating dancers at WSDC (World Swing Dance Council) competitions. You analyze \

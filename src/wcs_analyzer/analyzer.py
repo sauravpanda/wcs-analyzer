@@ -6,9 +6,17 @@ import time
 
 import anthropic
 
+from dataclasses import dataclass
+
 from .audio import AudioFeatures, format_beat_context
 from .exceptions import AnalysisError
-from .prompts import DANCER_CONTEXT_TEMPLATE, SEGMENT_ANALYSIS_PROMPT, SUMMARY_PROMPT, SYSTEM_PROMPT
+from .prompts import (
+    DANCER_CONTEXT_TEMPLATE,
+    PATTERN_SEGMENTATION_PROMPT,
+    SEGMENT_ANALYSIS_PROMPT,
+    SUMMARY_PROMPT,
+    SYSTEM_PROMPT,
+)
 from .scoring import SegmentAnalysis
 from .video import FrameData, group_frames_by_phrase
 
@@ -188,6 +196,94 @@ _RETRY_HINT = (
     "Return ONLY a single valid JSON object matching the schema above. "
     "No prose, no markdown fences, no commentary."
 )
+
+
+@dataclass
+class PatternSegment:
+    """A single pattern detected on the video timeline."""
+
+    start_time: float
+    end_time: float
+    name: str
+    confidence: float = 0.0
+
+
+def detect_pattern_timeline(
+    client: anthropic.Anthropic,
+    model: str,
+    frames: FrameData,
+    max_frames: int = 24,
+) -> list[PatternSegment]:
+    """Run a single LLM call to segment the video into named patterns.
+
+    Uses up to `max_frames` evenly-spaced frames from the full video so
+    the call stays cheap (one request instead of per-phrase). Returns an
+    empty list if the response can't be parsed.
+    """
+    if not frames.images:
+        return []
+
+    # Subsample evenly across the clip
+    n = len(frames.images)
+    if n <= max_frames:
+        selected_idx = list(range(n))
+    else:
+        step = n / max_frames
+        selected_idx = [int(i * step) for i in range(max_frames)]
+    selected_images = [frames.images[i] for i in selected_idx]
+
+    # Rough expectation: ~one pattern per 3 seconds of video
+    expected_count = max(1, int(frames.duration / 3.0))
+    prompt = PATTERN_SEGMENTATION_PROMPT.format(
+        duration=frames.duration,
+        num_frames=len(selected_images),
+        expected_count=expected_count,
+    )
+
+    content: list[dict] = [
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg", "data": img},
+        }
+        for img in selected_images
+    ]
+    content.append({"type": "text", "text": prompt})
+
+    raw = _call_claude(client, model, content)
+    data = safe_parse_json(raw)
+    if data is None or "patterns" not in data:
+        logger.warning("Pattern segmentation returned unparseable response: %s", raw[:200])
+        return []
+    return _parse_pattern_timeline(data.get("patterns", []), frames.duration)
+
+
+def _parse_pattern_timeline(items: list, duration: float) -> list[PatternSegment]:
+    """Validate, clamp, and sort a list of pattern timeline entries."""
+    segments: list[PatternSegment] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            start = max(0.0, float(item.get("start_time", 0.0)))
+            end = float(item.get("end_time", start))
+        except (TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        start = min(start, duration)
+        end = min(end, duration)
+        if end <= start:
+            continue
+        name = str(item.get("name", "")).strip() or "unknown"
+        try:
+            confidence = max(0.0, min(1.0, float(item.get("confidence", 0.0))))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        segments.append(PatternSegment(
+            start_time=start, end_time=end, name=name, confidence=confidence,
+        ))
+    segments.sort(key=lambda s: s.start_time)
+    return segments
 
 
 def _default_segment(start_time: float, end_time: float, raw: str) -> SegmentAnalysis:
