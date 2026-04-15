@@ -323,3 +323,114 @@ def _collect_top(segments: list[SegmentAnalysis], attr: str, n: int) -> list[str
             if len(items) >= n:
                 return items
     return items
+
+
+# When the standard deviation of a category across providers exceeds this
+# threshold, the ensemble flags the category as "contested" — a signal
+# that the models disagreed strongly and a human should review.
+CONTESTED_STDDEV = 1.0
+
+
+@dataclass
+class EnsembleScores:
+    """Aggregated scores from multiple provider runs on the same video."""
+
+    providers: list[str] = field(default_factory=list)
+    per_provider: dict[str, FinalScores] = field(default_factory=dict)
+
+    # Consensus = median per category
+    timing: float = 0.0
+    technique: float = 0.0
+    teamwork: float = 0.0
+    presentation: float = 0.0
+    overall: float = 0.0
+    grade: str = ""
+
+    # Agreement statistics
+    stddev: dict[str, float] = field(default_factory=dict)
+    contested: list[str] = field(default_factory=list)
+
+    # Technique sub-scores (median across providers)
+    posture: float = 0.0
+    extension: float = 0.0
+    footwork: float = 0.0
+    slot: float = 0.0
+
+
+def _median(values: list[float]) -> float:
+    """Return the median of a non-empty list of floats."""
+    sorted_vals = sorted(values)
+    n = len(sorted_vals)
+    mid = n // 2
+    if n % 2 == 1:
+        return sorted_vals[mid]
+    return (sorted_vals[mid - 1] + sorted_vals[mid]) / 2
+
+
+def _stddev(values: list[float]) -> float:
+    """Population standard deviation. Returns 0 for single-element lists."""
+    n = len(values)
+    if n <= 1:
+        return 0.0
+    mean = sum(values) / n
+    var = sum((v - mean) ** 2 for v in values) / n
+    return var ** 0.5
+
+
+def aggregate_ensemble(
+    per_provider: dict[str, FinalScores],
+) -> EnsembleScores:
+    """Combine multiple provider runs into a single consensus score.
+
+    Uses median across providers for each category (more robust to a
+    single wild outlier than mean) and flags categories where the
+    provider-to-provider stddev exceeds CONTESTED_STDDEV as contested.
+    """
+    if not per_provider:
+        return EnsembleScores()
+
+    providers = list(per_provider.keys())
+    runs = list(per_provider.values())
+
+    categories = ("timing", "technique", "teamwork", "presentation")
+    values: dict[str, list[float]] = {
+        cat: [getattr(r, cat) for r in runs] for cat in categories
+    }
+    medians = {cat: round(_median(v), 1) for cat, v in values.items()}
+    stddevs = {cat: round(_stddev(v), 2) for cat, v in values.items()}
+    contested = [cat for cat, sd in stddevs.items() if sd > CONTESTED_STDDEV]
+
+    overall = (
+        medians["timing"] * WEIGHTS["timing"]
+        + medians["technique"] * WEIGHTS["technique"]
+        + medians["teamwork"] * WEIGHTS["teamwork"]
+        + medians["presentation"] * WEIGHTS["presentation"]
+    )
+    grade = "F"
+    for threshold, g in GRADE_THRESHOLDS:
+        if overall >= threshold:
+            grade = g
+            break
+
+    tech_sub = ("posture", "extension", "footwork", "slot")
+    tech_medians = {
+        attr: round(_median([getattr(r, attr) for r in runs]), 1)
+        for attr in tech_sub
+    }
+
+    return EnsembleScores(
+        providers=providers,
+        per_provider=dict(per_provider),
+        timing=medians["timing"],
+        technique=medians["technique"],
+        teamwork=medians["teamwork"],
+        presentation=medians["presentation"],
+        overall=round(overall, 1),
+        grade=grade,
+        stddev=stddevs,
+        contested=contested,
+        posture=tech_medians["posture"],
+        extension=tech_medians["extension"],
+        footwork=tech_medians["footwork"],
+        slot=tech_medians["slot"],
+    )
