@@ -46,6 +46,11 @@ Score each category from 1 to 10:
 Be specific and constructive. Reference exact moments when possible. \
 Note both strengths and areas for improvement.
 
+For every category score you give, also return a `score_low` and `score_high` \
+expressing your uncertainty — the range you'd still defend if pressed. A confident \
+score has a tight interval (e.g., 7.3-7.7); a shaky or obstructed view has a wide \
+one (e.g., 5.5-8.0). Keep `score_low <= score <= score_high`, all within 1-10.
+
 IMPORTANT: If the video contains multiple couples or bystanders, focus \
 ONLY on the specified dancers. Ignore all other people in the frame.\
 """
@@ -68,6 +73,8 @@ Respond in this exact JSON format:
 {{
   "timing": {{
     "score": <1-10>,
+    "score_low": <1-10>,
+    "score_high": <1-10>,
     "on_beat": <true/false for overall>,
     "off_beat_moments": [
       {{"timestamp_approx": "<time>", "description": "<what happened>", "beat_count": "<e.g., 3&4>"}}
@@ -76,6 +83,8 @@ Respond in this exact JSON format:
   }},
   "technique": {{
     "score": <1-10>,
+    "score_low": <1-10>,
+    "score_high": <1-10>,
     "posture": {{"score": <1-10>, "notes": "<detail: frame alignment, core engagement, forward lean, head position, shoulder tension>"}},
     "extension": {{"score": <1-10>, "notes": "<detail: arm reach, body stretch through slot, line quality>"}},
     "footwork": {{"score": <1-10>, "notes": "<detail: heel leads, toe leads, rolling through feet, triple step clarity>"}},
@@ -84,11 +93,15 @@ Respond in this exact JSON format:
   }},
   "teamwork": {{
     "score": <1-10>,
+    "score_low": <1-10>,
+    "score_high": <1-10>,
     "connection": "<observations about lead/follow connection>",
     "notes": "<overall teamwork observations>"
   }},
   "presentation": {{
     "score": <1-10>,
+    "score_low": <1-10>,
+    "score_high": <1-10>,
     "musicality": "<observations>",
     "styling": "<observations>",
     "notes": "<overall presentation observations>"
@@ -127,6 +140,8 @@ Respond in this exact JSON format:
 {
   "timing": {
     "score": <1-10>,
+    "score_low": <1-10>,
+    "score_high": <1-10>,
     "on_beat": <true/false for overall>,
     "off_beat_moments": [
       {"timestamp_approx": "<time>", "description": "<what happened>", "beat_count": "<e.g., 3&4>"}
@@ -136,6 +151,8 @@ Respond in this exact JSON format:
   },
   "technique": {
     "score": <1-10>,
+    "score_low": <1-10>,
+    "score_high": <1-10>,
     "posture": {"score": <1-10>, "notes": "<detail: frame alignment, core engagement, forward lean, head position, shoulder tension>"},
     "extension": {"score": <1-10>, "notes": "<detail: arm reach, body stretch through slot, line quality>"},
     "footwork": {"score": <1-10>, "notes": "<detail: heel leads, toe leads, rolling through feet, triple step clarity>"},
@@ -144,11 +161,15 @@ Respond in this exact JSON format:
   },
   "teamwork": {
     "score": <1-10>,
+    "score_low": <1-10>,
+    "score_high": <1-10>,
     "connection": "<observations about lead/follow connection>",
     "notes": "<overall teamwork observations>"
   },
   "presentation": {
     "score": <1-10>,
+    "score_low": <1-10>,
+    "score_high": <1-10>,
     "musicality": "<observations — reference specific musical moments>",
     "styling": "<observations>",
     "notes": "<overall presentation observations>"
@@ -193,6 +214,8 @@ Provide a final summary analysis combining all segments. Respond in this exact J
 {{
   "timing": {{
     "score": <1-10 overall>,
+    "score_low": <1-10>,
+    "score_high": <1-10>,
     "total_off_beat_moments": <count>,
     "off_beat_details": [
       {{"time": "<timestamp>", "description": "<what happened>", "beat_count": "<e.g., 3&4>"}}
@@ -202,6 +225,8 @@ Provide a final summary analysis combining all segments. Respond in this exact J
   }},
   "technique": {{
     "score": <1-10 overall>,
+    "score_low": <1-10>,
+    "score_high": <1-10>,
     "posture_score": <1-10>,
     "extension_score": <1-10>,
     "footwork_score": <1-10>,
@@ -210,11 +235,15 @@ Provide a final summary analysis combining all segments. Respond in this exact J
   }},
   "teamwork": {{
     "score": <1-10 overall>,
+    "score_low": <1-10>,
+    "score_high": <1-10>,
     "connection_quality": "<assessment>",
     "notes": "<overall teamwork summary>"
   }},
   "presentation": {{
     "score": <1-10 overall>,
+    "score_low": <1-10>,
+    "score_high": <1-10>,
     "musicality_notes": "<assessment>",
     "styling_notes": "<assessment>",
     "notes": "<overall presentation summary>"

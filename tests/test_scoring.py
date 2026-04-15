@@ -131,3 +131,68 @@ def test_no_partner_data_zeros():
     scores = compute_final_scores([seg])
     assert scores.lead_technique == 0.0
     assert scores.follow_technique == 0.0
+
+
+def test_confidence_intervals_aggregate_from_segments():
+    """CI bounds should average across segments when no summary is present."""
+    seg1 = SegmentAnalysis(
+        start_time=0.0, end_time=4.0,
+        timing_score=7.0, timing_low=6.0, timing_high=8.0,
+        technique_score=6.0, technique_low=5.0, technique_high=7.0,
+        teamwork_score=7.0, teamwork_low=6.5, teamwork_high=7.5,
+        presentation_score=7.0, presentation_low=6.0, presentation_high=8.0,
+    )
+    seg2 = SegmentAnalysis(
+        start_time=4.0, end_time=8.0,
+        timing_score=9.0, timing_low=8.0, timing_high=10.0,
+        technique_score=8.0, technique_low=7.0, technique_high=9.0,
+        teamwork_score=7.0, teamwork_low=6.5, teamwork_high=7.5,
+        presentation_score=7.0, presentation_low=6.0, presentation_high=8.0,
+    )
+    scores = compute_final_scores([seg1, seg2])
+    assert scores.timing_low == 7.0
+    assert scores.timing_high == 9.0
+    assert scores.technique_low == 6.0
+    assert scores.technique_high == 8.0
+    # Overall CI should be weighted like overall score
+    assert scores.overall_low < scores.overall < scores.overall_high
+
+
+def test_low_confidence_flag_raised_on_wide_interval():
+    seg = SegmentAnalysis(
+        timing_score=7.0, timing_low=4.0, timing_high=9.0,  # width 5 > 2
+        technique_score=7.0, technique_low=6.8, technique_high=7.2,
+        teamwork_score=7.0, teamwork_low=6.8, teamwork_high=7.2,
+        presentation_score=7.0, presentation_low=6.8, presentation_high=7.2,
+    )
+    scores = compute_final_scores([seg])
+    assert scores.low_confidence is True
+
+
+def test_low_confidence_flag_off_on_tight_intervals():
+    seg = SegmentAnalysis(
+        timing_score=7.0, timing_low=6.8, timing_high=7.2,
+        technique_score=7.0, technique_low=6.8, technique_high=7.2,
+        teamwork_score=7.0, teamwork_low=6.8, teamwork_high=7.2,
+        presentation_score=7.0, presentation_low=6.8, presentation_high=7.2,
+    )
+    scores = compute_final_scores([seg])
+    assert scores.low_confidence is False
+
+
+def test_summary_ci_used_when_present():
+    seg1 = SegmentAnalysis(
+        start_time=0.0, end_time=4.0,
+        timing_score=5.0, timing_low=4.0, timing_high=6.0,
+    )
+    summary = SegmentAnalysis(
+        start_time=0.0, end_time=8.0,
+        timing_score=8.0, timing_low=7.5, timing_high=8.5,
+        technique_score=8.0, technique_low=7.5, technique_high=8.5,
+        teamwork_score=8.0, teamwork_low=7.5, teamwork_high=8.5,
+        presentation_score=8.0, presentation_low=7.5, presentation_high=8.5,
+        raw_data={"overall_impression": "Good"},
+    )
+    scores = compute_final_scores([seg1, summary])
+    assert scores.timing_low == 7.5
+    assert scores.timing_high == 8.5

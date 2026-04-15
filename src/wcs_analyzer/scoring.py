@@ -16,6 +16,16 @@ class SegmentAnalysis:
     teamwork_score: float = 5.0
     presentation_score: float = 5.0
 
+    # Per-category confidence intervals (low/high). Default to point estimate.
+    timing_low: float = 5.0
+    timing_high: float = 5.0
+    technique_low: float = 5.0
+    technique_high: float = 5.0
+    teamwork_low: float = 5.0
+    teamwork_high: float = 5.0
+    presentation_low: float = 5.0
+    presentation_high: float = 5.0
+
     # Technique sub-scores
     posture_score: float = 5.0
     extension_score: float = 5.0
@@ -68,6 +78,19 @@ class FinalScores:
     presentation: float = 0.0
     overall: float = 0.0
     grade: str = ""
+
+    # Aggregated per-category confidence intervals
+    timing_low: float = 0.0
+    timing_high: float = 0.0
+    technique_low: float = 0.0
+    technique_high: float = 0.0
+    teamwork_low: float = 0.0
+    teamwork_high: float = 0.0
+    presentation_low: float = 0.0
+    presentation_high: float = 0.0
+    overall_low: float = 0.0
+    overall_high: float = 0.0
+    low_confidence: bool = False
 
     # Technique sub-scores
     posture: float = 0.0
@@ -126,6 +149,10 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         extension = summary.extension_score
         footwork = summary.footwork_score
         slot = summary.slot_score
+        timing_lo, timing_hi = summary.timing_low, summary.timing_high
+        tech_lo, tech_hi = summary.technique_low, summary.technique_high
+        tw_lo, tw_hi = summary.teamwork_low, summary.teamwork_high
+        pres_lo, pres_hi = summary.presentation_low, summary.presentation_high
     else:
         n = len(scoring_segments)
         timing = sum(s.timing_score for s in scoring_segments) / n
@@ -136,13 +163,35 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         extension = sum(s.extension_score for s in scoring_segments) / n
         footwork = sum(s.footwork_score for s in scoring_segments) / n
         slot = sum(s.slot_score for s in scoring_segments) / n
+        timing_lo = sum(s.timing_low for s in scoring_segments) / n
+        timing_hi = sum(s.timing_high for s in scoring_segments) / n
+        tech_lo = sum(s.technique_low for s in scoring_segments) / n
+        tech_hi = sum(s.technique_high for s in scoring_segments) / n
+        tw_lo = sum(s.teamwork_low for s in scoring_segments) / n
+        tw_hi = sum(s.teamwork_high for s in scoring_segments) / n
+        pres_lo = sum(s.presentation_low for s in scoring_segments) / n
+        pres_hi = sum(s.presentation_high for s in scoring_segments) / n
 
-    # Weighted overall
-    overall = (
-        timing * WEIGHTS["timing"]
-        + technique * WEIGHTS["technique"]
-        + teamwork * WEIGHTS["teamwork"]
-        + presentation * WEIGHTS["presentation"]
+    # Weighted overall (and weighted CI bounds)
+    def _weighted(t: float, tc: float, tw: float, p: float) -> float:
+        return (
+            t * WEIGHTS["timing"]
+            + tc * WEIGHTS["technique"]
+            + tw * WEIGHTS["teamwork"]
+            + p * WEIGHTS["presentation"]
+        )
+
+    overall = _weighted(timing, technique, teamwork, presentation)
+    overall_lo = _weighted(timing_lo, tech_lo, tw_lo, pres_lo)
+    overall_hi = _weighted(timing_hi, tech_hi, tw_hi, pres_hi)
+    low_conf = any(
+        hi - lo > 2.0
+        for lo, hi in (
+            (timing_lo, timing_hi),
+            (tech_lo, tech_hi),
+            (tw_lo, tw_hi),
+            (pres_lo, pres_hi),
+        )
     )
 
     # Letter grade
@@ -215,6 +264,17 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         presentation=round(presentation, 1),
         overall=round(overall, 1),
         grade=grade,
+        timing_low=round(timing_lo, 1),
+        timing_high=round(timing_hi, 1),
+        technique_low=round(tech_lo, 1),
+        technique_high=round(tech_hi, 1),
+        teamwork_low=round(tw_lo, 1),
+        teamwork_high=round(tw_hi, 1),
+        presentation_low=round(pres_lo, 1),
+        presentation_high=round(pres_hi, 1),
+        overall_low=round(overall_lo, 1),
+        overall_high=round(overall_hi, 1),
+        low_confidence=low_conf,
         posture=round(posture, 1),
         extension=round(extension, 1),
         footwork=round(footwork, 1),

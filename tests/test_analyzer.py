@@ -7,6 +7,7 @@ import pytest
 
 from wcs_analyzer.analyzer import (
     _parse_segment_json, _call_claude, _effective_max_frames, analyze_dance,
+    clamp_score, clamp_partner, parse_segment_data, safe_parse_json,
     MAX_FRAMES_PER_CALL, _IMAGE_TOKEN_BUDGET, _TOKENS_PER_IMAGE_ESTIMATE,
 )
 from wcs_analyzer.audio import AudioFeatures
@@ -139,6 +140,149 @@ class TestTokenAwareness:
 
     def test_effective_max_frames_positive(self):
         assert _effective_max_frames() > 0
+
+
+class TestClampScore:
+    def test_in_range_unchanged(self):
+        assert clamp_score(7.5) == 7.5
+        assert clamp_score(1.0) == 1.0
+        assert clamp_score(10.0) == 10.0
+
+    def test_above_ten_clamped(self):
+        assert clamp_score(15) == 10.0
+        assert clamp_score(10.5) == 10.0
+
+    def test_below_one_clamped_or_defaulted(self):
+        # 0 or negative is treated as missing -> default
+        assert clamp_score(0) == 5.0
+        assert clamp_score(-3) == 5.0
+        # Positive-but-small clamps up to the floor
+        assert clamp_score(0.5) == 1.0
+
+    def test_invalid_types_return_default(self):
+        assert clamp_score("not a number") == 5.0
+        assert clamp_score(None) == 5.0
+        assert clamp_score({}) == 5.0
+
+    def test_nan_returns_default(self):
+        assert clamp_score(float("nan")) == 5.0
+
+    def test_custom_default(self):
+        assert clamp_score(None, default=3.0) == 3.0
+
+
+class TestClampPartner:
+    def test_zero_preserved(self):
+        assert clamp_partner(0) == 0.0
+        assert clamp_partner(None) == 0.0
+
+    def test_in_range(self):
+        assert clamp_partner(7.5) == 7.5
+
+    def test_out_of_range_clamped(self):
+        assert clamp_partner(15) == 10.0
+        assert clamp_partner(0.3) == 1.0
+
+
+class TestParseSegmentData:
+    def test_out_of_range_scores_clamped(self):
+        data = {
+            "timing": {"score": 15},
+            "technique": {"score": -2},
+            "teamwork": {"score": 10.5},
+            "presentation": {"score": "bad"},
+        }
+        seg = parse_segment_data(data, 0.0, 4.0)
+        assert seg.timing_score == 10.0
+        assert seg.technique_score == 5.0  # negative -> default
+        assert seg.teamwork_score == 10.0
+        assert seg.presentation_score == 5.0
+
+    def test_confidence_intervals_parsed(self):
+        data = {
+            "timing": {"score": 7.5, "score_low": 7.0, "score_high": 8.0},
+            "technique": {"score": 6.0, "score_low": 4.5, "score_high": 7.5},
+            "teamwork": {"score": 8.0},
+            "presentation": {"score": 7.0},
+        }
+        seg = parse_segment_data(data, 0.0, 4.0)
+        assert seg.timing_low == 7.0
+        assert seg.timing_high == 8.0
+        assert seg.technique_low == 4.5
+        assert seg.technique_high == 7.5
+        # Missing CI falls back to point estimate
+        assert seg.teamwork_low == 8.0
+        assert seg.teamwork_high == 8.0
+
+    def test_ci_out_of_order_swapped(self):
+        data = {"timing": {"score": 7.0, "score_low": 8.0, "score_high": 6.0}}
+        seg = parse_segment_data(data, 0.0, 4.0)
+        assert seg.timing_low <= seg.timing_high
+        assert seg.timing_low <= 7.0 <= seg.timing_high
+
+    def test_ci_clamped_to_range(self):
+        data = {"timing": {"score": 7.0, "score_low": -5, "score_high": 99}}
+        seg = parse_segment_data(data, 0.0, 4.0)
+        assert seg.timing_low >= 1.0
+        assert seg.timing_high <= 10.0
+
+    def test_summary_flat_sub_scores(self):
+        # SUMMARY_PROMPT emits flat posture_score, not nested posture.score
+        data = {
+            "timing": {"score": 7},
+            "technique": {
+                "score": 7,
+                "posture_score": 8,
+                "extension_score": 6,
+                "footwork_score": 7.5,
+                "slot_score": 6.5,
+            },
+            "teamwork": {"score": 7},
+            "presentation": {"score": 7},
+        }
+        seg = parse_segment_data(data, 0.0, 4.0)
+        assert seg.posture_score == 8.0
+        assert seg.extension_score == 6.0
+        assert seg.footwork_score == 7.5
+        assert seg.slot_score == 6.5
+
+
+class TestSafeParseJson:
+    def test_plain_json(self):
+        assert safe_parse_json('{"a": 1}') == {"a": 1}
+
+    def test_markdown_fence(self):
+        assert safe_parse_json('```json\n{"a": 1}\n```') == {"a": 1}
+
+    def test_bad_returns_none(self):
+        assert safe_parse_json("not json") is None
+
+    def test_non_dict_returns_none(self):
+        assert safe_parse_json("[1, 2, 3]") is None
+
+
+class TestCallAndParseRetry:
+    @patch("wcs_analyzer.analyzer._call_claude")
+    def test_retry_on_parse_failure(self, mock_call: MagicMock):
+        from wcs_analyzer.analyzer import _call_and_parse
+        mock_call.side_effect = ["not json", VALID_RESPONSE]
+        mock_client = MagicMock()
+        parsed = _call_and_parse(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "x"}], 0.0, 4.0)
+        assert parsed.timing_score == 7.5
+        assert mock_call.call_count == 2
+        # Second call should include the corrective hint
+        second_content = mock_call.call_args_list[1][0][2]
+        assert any("could not be parsed" in str(c) for c in second_content)
+
+    @patch("wcs_analyzer.analyzer._call_claude")
+    def test_retry_failure_uses_default(self, mock_call: MagicMock):
+        from wcs_analyzer.analyzer import _call_and_parse
+        mock_call.side_effect = ["not json", "still not json"]
+        mock_client = MagicMock()
+        parsed = _call_and_parse(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "x"}], 0.0, 4.0)
+        assert parsed.timing_score == 5.0
+        assert "error" in parsed.raw_data
+        assert mock_call.call_count == 2
 
 
 class TestAnalyzeDance:

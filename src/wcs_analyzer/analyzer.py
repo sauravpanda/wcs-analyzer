@@ -37,6 +37,159 @@ def _effective_max_frames() -> int:
     return min(MAX_FRAMES_PER_CALL, max_by_budget)
 
 
+SCORE_MIN = 1.0
+SCORE_MAX = 10.0
+
+
+def clamp_score(value: object, default: float = 5.0) -> float:
+    """Coerce a raw JSON value to a float score clamped to [1, 10].
+
+    Invalid or missing values fall back to `default`. A value of 0 is
+    treated as missing so partner-specific fields (lead/follow) can
+    signal absence with 0 and still clamp correctly via clamp_partner.
+    """
+    try:
+        v = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    if v != v:  # NaN
+        return default
+    if v < SCORE_MIN:
+        if v <= 0:
+            return default
+        return SCORE_MIN
+    if v > SCORE_MAX:
+        return SCORE_MAX
+    return v
+
+
+def clamp_partner(value: object) -> float:
+    """Clamp a partner-specific score, preserving 0 as 'not detected'."""
+    try:
+        v = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
+    if v != v or v <= 0:
+        return 0.0
+    return min(SCORE_MAX, max(SCORE_MIN, v))
+
+
+def _parse_ci(cat: dict, score: float) -> tuple[float, float]:
+    """Extract score_low / score_high, clamped and ordered around score."""
+    lo = clamp_score(cat.get("score_low"), default=score)
+    hi = clamp_score(cat.get("score_high"), default=score)
+    if lo > hi:
+        lo, hi = hi, lo
+    return min(lo, score), max(hi, score)
+
+
+def _sub_score(technique: dict, key: str) -> float:
+    """Extract a technique sub-score from either nested or flat summary format."""
+    sub = technique.get(key)
+    if isinstance(sub, dict):
+        return clamp_score(sub.get("score", 5))
+    return clamp_score(technique.get(f"{key}_score", 5))
+
+
+def parse_segment_data(data: dict, start_time: float, end_time: float) -> SegmentAnalysis:
+    """Build a SegmentAnalysis from a parsed JSON dict.
+
+    Shared by the Claude, Gemini, and Claude Code providers so that
+    score clamping and confidence-interval parsing behave identically.
+    """
+    timing = data.get("timing") or {}
+    technique = data.get("technique") or {}
+    teamwork = data.get("teamwork") or {}
+    presentation = data.get("presentation") or {}
+    lead = data.get("lead") or {}
+    follow = data.get("follow") or {}
+
+    timing_score = clamp_score(timing.get("score", 5))
+    technique_score = clamp_score(technique.get("score", 5))
+    teamwork_score = clamp_score(teamwork.get("score", 5))
+    presentation_score = clamp_score(presentation.get("score", 5))
+
+    t_lo, t_hi = _parse_ci(timing, timing_score)
+    tc_lo, tc_hi = _parse_ci(technique, technique_score)
+    tw_lo, tw_hi = _parse_ci(teamwork, teamwork_score)
+    p_lo, p_hi = _parse_ci(presentation, presentation_score)
+
+    patterns_raw = data.get("patterns_identified", data.get("patterns_seen", []))
+
+    return SegmentAnalysis(
+        start_time=start_time,
+        end_time=end_time,
+        timing_score=timing_score,
+        technique_score=technique_score,
+        teamwork_score=teamwork_score,
+        presentation_score=presentation_score,
+        timing_low=t_lo,
+        timing_high=t_hi,
+        technique_low=tc_lo,
+        technique_high=tc_hi,
+        teamwork_low=tw_lo,
+        teamwork_high=tw_hi,
+        presentation_low=p_lo,
+        presentation_high=p_hi,
+        posture_score=_sub_score(technique, "posture"),
+        extension_score=_sub_score(technique, "extension"),
+        footwork_score=_sub_score(technique, "footwork"),
+        slot_score=_sub_score(technique, "slot"),
+        off_beat_moments=timing.get("off_beat_moments", []) or [],
+        patterns=_extract_pattern_names(patterns_raw),
+        pattern_details=_extract_pattern_details(patterns_raw),
+        highlights=data.get("highlights", data.get("top_strengths", [])) or [],
+        improvements=data.get("improvements", data.get("top_improvements", [])) or [],
+        lead_technique=clamp_partner(lead.get("technique_score", 0)),
+        lead_presentation=clamp_partner(lead.get("presentation_score", 0)),
+        lead_notes=lead.get("notes", "") or "",
+        follow_technique=clamp_partner(follow.get("technique_score", 0)),
+        follow_presentation=clamp_partner(follow.get("presentation_score", 0)),
+        follow_notes=follow.get("notes", "") or "",
+        raw_data=data,
+    )
+
+
+def _strip_fences(raw: str) -> str:
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    return text.strip()
+
+
+def safe_parse_json(raw: str) -> dict | None:
+    """Parse LLM response text as JSON, stripping markdown fences.
+
+    Returns None on failure rather than raising.
+    """
+    try:
+        result = json.loads(_strip_fences(raw))
+    except json.JSONDecodeError:
+        return None
+    return result if isinstance(result, dict) else None
+
+
+_RETRY_HINT = (
+    "Your previous response could not be parsed as JSON. "
+    "Return ONLY a single valid JSON object matching the schema above. "
+    "No prose, no markdown fences, no commentary."
+)
+
+
+def _default_segment(start_time: float, end_time: float, raw: str) -> SegmentAnalysis:
+    return SegmentAnalysis(
+        start_time=start_time,
+        end_time=end_time,
+        timing_score=5.0,
+        technique_score=5.0,
+        teamwork_score=5.0,
+        presentation_score=5.0,
+        raw_data={"error": "Failed to parse response", "raw": raw[:500]},
+    )
+
+
 def analyze_dance(
     frames: FrameData,
     audio: AudioFeatures,
@@ -114,8 +267,11 @@ def analyze_dance(
             })
         content.append({"type": "text", "text": prompt})
 
-        result = _call_claude(client, model, content)
-        parsed = _parse_segment_json(result, phrase["start_time"], phrase["end_time"])
+        parsed = _call_and_parse(
+            client, model, content,
+            start_time=phrase["start_time"],
+            end_time=phrase["end_time"],
+        )
         segment_results.append(parsed)
 
     # Get final summary if we have multiple segments
@@ -156,57 +312,43 @@ def _call_claude(
 
 
 def _parse_segment_json(raw: str, start_time: float, end_time: float) -> SegmentAnalysis:
-    """Parse Claude's JSON response into a SegmentAnalysis."""
-    # Strip markdown code fences if present
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
-    text = text.strip()
-
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
+    """Parse Claude's JSON response into a SegmentAnalysis (no retry)."""
+    data = safe_parse_json(raw)
+    if data is None:
         logger.warning(
             "Failed to parse Claude response as JSON for segment %.1f-%.1fs. "
             "Using default scores. Raw response: %s",
             start_time, end_time, raw[:200],
         )
-        return SegmentAnalysis(
-            start_time=start_time,
-            end_time=end_time,
-            timing_score=5.0,
-            technique_score=5.0,
-            teamwork_score=5.0,
-            presentation_score=5.0,
-            raw_data={"error": "Failed to parse response", "raw": raw[:500]},
-        )
+        return _default_segment(start_time, end_time, raw)
+    return parse_segment_data(data, start_time, end_time)
 
-    return SegmentAnalysis(
-        start_time=start_time,
-        end_time=end_time,
-        timing_score=float(data.get("timing", {}).get("score", 5)),
-        technique_score=float(data.get("technique", {}).get("score", 5)),
-        teamwork_score=float(data.get("teamwork", {}).get("score", 5)),
-        presentation_score=float(data.get("presentation", {}).get("score", 5)),
-        off_beat_moments=data.get("timing", {}).get("off_beat_moments", []),
-        posture_score=float(data.get("technique", {}).get("posture", {}).get("score", 5)),
-        extension_score=float(data.get("technique", {}).get("extension", {}).get("score", 5)),
-        footwork_score=float(data.get("technique", {}).get("footwork", {}).get("score", 5)),
-        slot_score=float(data.get("technique", {}).get("slot", {}).get("score", 5)),
-        patterns=_extract_pattern_names(data.get("patterns_identified", [])),
-        pattern_details=_extract_pattern_details(data.get("patterns_identified", [])),
-        highlights=data.get("highlights", []),
-        improvements=data.get("improvements", []),
-        lead_technique=float(data.get("lead", {}).get("technique_score", 0)),
-        lead_presentation=float(data.get("lead", {}).get("presentation_score", 0)),
-        lead_notes=data.get("lead", {}).get("notes", ""),
-        follow_technique=float(data.get("follow", {}).get("technique_score", 0)),
-        follow_presentation=float(data.get("follow", {}).get("presentation_score", 0)),
-        follow_notes=data.get("follow", {}).get("notes", ""),
-        raw_data=data,
-    )
+
+def _call_and_parse(
+    client: anthropic.Anthropic,
+    model: str,
+    content: list,  # type: ignore[type-arg]
+    start_time: float,
+    end_time: float,
+) -> SegmentAnalysis:
+    """Call Claude, parse the response, and retry once on JSON parse failure."""
+    raw = _call_claude(client, model, content)
+    data = safe_parse_json(raw)
+    if data is None:
+        logger.warning(
+            "Segment %.1f-%.1fs: JSON parse failed, retrying with corrective prompt",
+            start_time, end_time,
+        )
+        retry_content = list(content) + [{"type": "text", "text": _RETRY_HINT}]
+        raw = _call_claude(client, model, retry_content)
+        data = safe_parse_json(raw)
+    if data is None:
+        logger.warning(
+            "Segment %.1f-%.1fs: retry also failed to parse. Using default scores. Raw: %s",
+            start_time, end_time, raw[:200],
+        )
+        return _default_segment(start_time, end_time, raw)
+    return parse_segment_data(data, start_time, end_time)
 
 
 def _get_summary(
@@ -243,9 +385,9 @@ def _get_summary(
         segment_results=combined,
     )
 
-    result = _call_claude(client, model, [{"type": "text", "text": prompt}])
-    return _parse_segment_json(
-        result,
+    return _call_and_parse(
+        client, model,
+        [{"type": "text", "text": prompt}],
         start_time=0.0,
         end_time=audio.duration,
     )
