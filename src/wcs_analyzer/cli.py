@@ -487,6 +487,64 @@ def timing(video_path: Path, provider: str, dancers: str | None, verbose: bool):
 
 
 @main.command()
+@click.argument("video_path", type=click.Path(exists=True, path_type=Path))
+@click.option("--model", default="claude-sonnet-4-6", help="Claude model for pattern detection.")
+@click.option("--fps", type=float, default=3.0, callback=_validate_fps, help="Frame sampling rate.")
+def patterns(video_path: Path, model: str, fps: float):
+    """Detect and list the WCS patterns on the video's timeline.
+
+    Runs a single cheap LLM call to pre-segment the dance into named
+    patterns (sugar push, whip, side pass, ...) with approximate time
+    ranges. Useful before a full analysis so you know what the scorer
+    is actually looking at.
+    """
+    import anthropic
+    from rich.table import Table
+    from .analyzer import detect_pattern_timeline
+    from .video import extract_frames
+
+    console.print(f"\n[bold]WCS Analyzer[/bold] — pattern timeline for [cyan]{video_path.name}[/cyan]\n")
+
+    try:
+        with console.status("Extracting frames..."):
+            frames = extract_frames(video_path, fps=fps)
+        console.print(f"  Extracted [green]{len(frames.images)}[/green] frames")
+
+        client = anthropic.Anthropic()
+        with console.status("Detecting patterns..."):
+            timeline = detect_pattern_timeline(client, model, frames)
+    except WCSAnalyzerError as e:
+        console.print(f"\n  [red]Error:[/red] {e}")
+        raise SystemExit(1)
+
+    if not timeline:
+        console.print("  [yellow]No patterns detected.[/yellow]")
+        return
+
+    table = Table(title="Pattern Timeline", show_header=True, header_style="bold cyan")
+    table.add_column("#", justify="right", width=4)
+    table.add_column("Start", justify="right", width=8)
+    table.add_column("End", justify="right", width=8)
+    table.add_column("Duration", justify="right", width=10)
+    table.add_column("Pattern", width=24)
+    table.add_column("Confidence", justify="center", width=12)
+
+    for i, seg in enumerate(timeline, 1):
+        dur = seg.end_time - seg.start_time
+        conf_color = "green" if seg.confidence >= 0.7 else "yellow" if seg.confidence >= 0.4 else "red"
+        table.add_row(
+            str(i),
+            f"{seg.start_time:.1f}s",
+            f"{seg.end_time:.1f}s",
+            f"{dur:.1f}s",
+            seg.name,
+            f"[{conf_color}]{seg.confidence:.2f}[/{conf_color}]",
+        )
+    console.print(table)
+    console.print()
+
+
+@main.command()
 @click.argument("dancer", required=True)
 def progress(dancer: str):
     """Show longitudinal progress for a tracked dancer.
