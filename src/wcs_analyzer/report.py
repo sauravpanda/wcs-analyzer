@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from .scoring import FinalScores
+from .scoring import EnsembleScores, FinalScores
 
 _COMPARE_CATEGORIES = ["timing", "technique", "teamwork", "presentation"]
 
@@ -366,6 +366,115 @@ def save_report_csv(scores: FinalScores, path: Path) -> None:
                 seg.teamwork_score,
                 seg.presentation_score,
             ])
+
+
+def print_ensemble_report(ensemble: EnsembleScores, video_name: str) -> None:
+    """Render a side-by-side multi-provider ensemble report."""
+    console.print()
+    header = Table.grid(padding=1)
+    header.add_column(justify="center")
+    header.add_row(Text("WCS Ensemble Analysis Report", style="bold white"))
+    header.add_row(Text(f"{video_name} — {', '.join(ensemble.providers)}", style="dim"))
+    console.print(Panel(header, style="blue", padding=(1, 2)))
+
+    # Consensus overall
+    color = _score_color(ensemble.overall)
+    overall_text = Text()
+    overall_text.append("  Consensus Score: ", style="bold")
+    overall_text.append(f"{ensemble.overall} / 10", style=f"bold {color}")
+    overall_text.append(f"  ({ensemble.grade})", style=f"bold {color}")
+    if ensemble.contested:
+        overall_text.append(
+            f"  \u26a0 contested: {', '.join(ensemble.contested)}",
+            style="bold yellow",
+        )
+    console.print(Panel(overall_text, style=color))
+
+    # Per-category comparison
+    table = Table(title="Category Scores by Provider", show_header=True, header_style="bold cyan")
+    table.add_column("Category", style="bold", width=18)
+    for p in ensemble.providers:
+        table.add_column(p, justify="center", width=12)
+    table.add_column("Consensus", justify="center", width=12)
+    table.add_column("StdDev", justify="center", width=10)
+
+    categories = [
+        ("Timing & Rhythm", "timing", ensemble.timing),
+        ("Technique", "technique", ensemble.technique),
+        ("Teamwork", "teamwork", ensemble.teamwork),
+        ("Presentation", "presentation", ensemble.presentation),
+    ]
+
+    for label, key, consensus in categories:
+        row = [label]
+        for p in ensemble.providers:
+            v = getattr(ensemble.per_provider[p], key)
+            row.append(f"[{_score_color(v)}]{v}[/{_score_color(v)}]")
+        row.append(f"[{_score_color(consensus)}]{consensus}[/{_score_color(consensus)}]")
+        sd = ensemble.stddev.get(key, 0.0)
+        sd_color = "yellow" if key in ensemble.contested else "dim"
+        row.append(f"[{sd_color}]{sd:.2f}[/{sd_color}]")
+        table.add_row(*row)
+
+    console.print(table)
+    console.print()
+
+    # Technique sub-scores consensus
+    tech_table = Table(title="Technique Breakdown (consensus)", show_header=True, header_style="bold cyan")
+    tech_table.add_column("Area", style="bold", width=12)
+    tech_table.add_column("Score", justify="center", width=8)
+    tech_table.add_column("", width=12)
+    for name, score in [
+        ("Posture", ensemble.posture),
+        ("Extension", ensemble.extension),
+        ("Footwork", ensemble.footwork),
+        ("Slot", ensemble.slot),
+    ]:
+        c = _score_color(score)
+        tech_table.add_row(name, f"[{c}]{score}[/{c}]", f"[{c}]{_score_bar(score)}[/{c}]")
+    console.print(tech_table)
+    console.print()
+
+    if ensemble.contested:
+        console.print(
+            f"  [bold yellow]\u26a0 Contested categories[/bold yellow] — "
+            f"stddev > 1.0 means the models disagreed. Review: "
+            f"{', '.join(ensemble.contested)}"
+        )
+        console.print()
+
+
+def save_ensemble_json(ensemble: EnsembleScores, path: Path) -> None:
+    """Save the ensemble report as JSON."""
+    data = {
+        "providers": ensemble.providers,
+        "consensus": {
+            "overall": ensemble.overall,
+            "grade": ensemble.grade,
+            "timing": ensemble.timing,
+            "technique": ensemble.technique,
+            "teamwork": ensemble.teamwork,
+            "presentation": ensemble.presentation,
+            "posture": ensemble.posture,
+            "extension": ensemble.extension,
+            "footwork": ensemble.footwork,
+            "slot": ensemble.slot,
+        },
+        "stddev": ensemble.stddev,
+        "contested": ensemble.contested,
+        "per_provider": {
+            name: {
+                "overall": fs.overall,
+                "grade": fs.grade,
+                "timing": fs.timing,
+                "technique": fs.technique,
+                "teamwork": fs.teamwork,
+                "presentation": fs.presentation,
+            }
+            for name, fs in ensemble.per_provider.items()
+        },
+    }
+    path.write_text(json.dumps(data, indent=2))
 
 
 def _trend(current: float, previous: float) -> str:

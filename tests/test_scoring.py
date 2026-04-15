@@ -1,7 +1,9 @@
 """Tests for the scoring engine."""
 
 from wcs_analyzer.scoring import (
+    FinalScores,
     SegmentAnalysis,
+    aggregate_ensemble,
     compute_final_scores,
     WEIGHTS,
 )
@@ -227,3 +229,72 @@ def test_summary_ci_used_when_present():
     scores = compute_final_scores([seg1, summary])
     assert scores.timing_low == 7.5
     assert scores.timing_high == 8.5
+
+
+# ---- Ensemble aggregation tests -------------------------------------------
+
+
+def _fs(timing=7.0, technique=7.0, teamwork=7.0, presentation=7.0,
+        posture=7.0, extension=7.0, footwork=7.0, slot=7.0) -> FinalScores:
+    return FinalScores(
+        timing=timing, technique=technique, teamwork=teamwork, presentation=presentation,
+        posture=posture, extension=extension, footwork=footwork, slot=slot,
+    )
+
+
+def test_ensemble_consensus_is_median():
+    runs = {
+        "gemini": _fs(timing=8.0, technique=7.0, teamwork=7.0, presentation=7.0),
+        "claude": _fs(timing=6.0, technique=7.0, teamwork=7.0, presentation=7.0),
+        "claude-code": _fs(timing=7.0, technique=7.0, teamwork=7.0, presentation=7.0),
+    }
+    ensemble = aggregate_ensemble(runs)
+    assert ensemble.timing == 7.0  # median of 6, 7, 8
+    assert ensemble.technique == 7.0
+    assert len(ensemble.providers) == 3
+
+
+def test_ensemble_flags_contested_categories():
+    runs = {
+        "a": _fs(timing=9.0),
+        "b": _fs(timing=5.0),  # 4-point spread → stddev ~2.0 → contested
+    }
+    ensemble = aggregate_ensemble(runs)
+    assert "timing" in ensemble.contested
+    assert ensemble.stddev["timing"] > 1.0
+
+
+def test_ensemble_tight_agreement_not_contested():
+    runs = {
+        "a": _fs(timing=7.0, technique=6.5),
+        "b": _fs(timing=7.2, technique=6.7),
+        "c": _fs(timing=6.9, technique=6.4),
+    }
+    ensemble = aggregate_ensemble(runs)
+    assert ensemble.contested == []
+    assert ensemble.stddev["timing"] < 0.5
+
+
+def test_ensemble_overall_uses_weighted_medians():
+    runs = {
+        "a": _fs(timing=8.0, technique=6.0, teamwork=7.0, presentation=8.0),
+        "b": _fs(timing=8.0, technique=6.0, teamwork=7.0, presentation=8.0),
+    }
+    ensemble = aggregate_ensemble(runs)
+    expected = 8.0 * 0.30 + 6.0 * 0.30 + 7.0 * 0.20 + 8.0 * 0.20
+    assert ensemble.overall == round(expected, 1)
+    assert ensemble.grade in ("A", "A-", "B+", "B", "B-")
+
+
+def test_ensemble_empty_returns_default():
+    ensemble = aggregate_ensemble({})
+    assert ensemble.overall == 0.0
+    assert ensemble.providers == []
+
+
+def test_ensemble_single_provider_has_zero_stddev():
+    runs = {"gemini": _fs(timing=7.5)}
+    ensemble = aggregate_ensemble(runs)
+    assert ensemble.timing == 7.5
+    assert ensemble.stddev["timing"] == 0.0
+    assert ensemble.contested == []

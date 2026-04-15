@@ -59,8 +59,9 @@ _DEFAULT_MODELS = {
 @click.option("--format", "fmt", type=click.Choice(["terminal", "json", "csv"]), default="terminal", help="Output format.")
 @click.option("--parallel", "-j", type=int, default=1, help="Number of videos to analyze in parallel.")
 @click.option("--pose", "use_pose", is_flag=True, default=False, help="Extract MediaPipe pose metrics and feed them as context to the LLM (Gemini only). Requires `pip install 'wcs-analyzer[pose]'`.")
+@click.option("--providers", "providers_list", default=None, help="Comma-separated list of providers for ensemble mode (e.g. 'gemini,claude-code'). Each runs independently and results are aggregated with disagreement flagging.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging output.")
-def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, detail: str, output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int, use_pose: bool, verbose: bool):
+def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, detail: str, output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int, use_pose: bool, providers_list: str | None, verbose: bool):
     """Analyze one or more West Coast Swing dance videos.
 
     Pass multiple video files to analyze them all. Use -j to run in parallel.
@@ -73,6 +74,21 @@ def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, det
     """
     _setup_logging(verbose)
     model = model or _DEFAULT_MODELS[provider]
+
+    if providers_list:
+        providers = [p.strip() for p in providers_list.split(",") if p.strip()]
+        unknown = [p for p in providers if p not in _DEFAULT_MODELS]
+        if unknown:
+            console.print(f"[red]Unknown provider(s) in --providers:[/red] {', '.join(unknown)}")
+            raise SystemExit(1)
+        if len(providers) < 2:
+            console.print("[red]--providers needs at least two provider names.[/red]")
+            raise SystemExit(1)
+        if len(video_paths) != 1:
+            console.print("[red]--providers currently only supports a single video at a time.[/red]")
+            raise SystemExit(1)
+        _analyze_ensemble(video_paths[0], providers, detail, output, fps, dancers, no_cache, fmt, use_pose)
+        return
 
     if use_pose and provider != "gemini":
         console.print(
@@ -143,6 +159,72 @@ def _analyze_single(
     except WCSAnalyzerError as e:
         console.print(f"\n  [red]Error:[/red] {e}")
         raise SystemExit(1)
+
+
+def _analyze_ensemble(
+    video_path: Path, providers: list[str], detail: str,
+    output: Path | None, fps: float, dancers: str | None,
+    no_cache: bool, fmt: str, use_pose: bool,
+) -> None:
+    """Run multiple providers on a single video and aggregate their scores."""
+    from .scoring import aggregate_ensemble, compute_final_scores
+    from .report import print_ensemble_report, save_ensemble_json
+    from .cache import get_cached_result, save_to_cache, segments_to_dicts, dicts_to_segments
+
+    console.print(f"\n[bold]WCS Analyzer[/bold] — ensemble analysis of [cyan]{video_path.name}[/cyan]")
+    console.print(f"  Providers: [bold]{', '.join(providers)}[/bold]")
+    if dancers:
+        console.print(f"  Dancers: [cyan]{dancers}[/cyan]")
+    console.print()
+
+    pose_context = _compute_pose_context(video_path) if use_pose else None
+    per_provider = {}
+
+    for provider in providers:
+        model = _DEFAULT_MODELS[provider]
+        console.print(f"  [bold]\u25b8[/bold] Running [cyan]{provider}[/cyan] ({model})...")
+        cache_key_model = f"{provider}:{model}:{dancers or ''}"
+        cached = None
+        if not no_cache:
+            cached = get_cached_result(video_path, fps, detail, cache_key_model)
+
+        try:
+            if cached is not None:
+                console.print("    [cyan]Using cached result[/cyan]")
+                segments = dicts_to_segments(cached)
+            elif provider == "gemini":
+                segments = _analyze_with_gemini(video_path, model, detail, dancers, pose_context)
+            elif provider == "claude-code":
+                segments = _analyze_with_claude_code(video_path, detail, fps, dancers)
+            else:
+                segments = _analyze_with_claude(video_path, model, detail, fps, dancers)
+
+            if cached is None and not no_cache:
+                save_to_cache(video_path, fps, detail, cache_key_model, segments_to_dicts(segments))
+        except WCSAnalyzerError as e:
+            console.print(f"    [red]{provider} failed:[/red] {e}")
+            continue
+
+        per_provider[provider] = compute_final_scores(segments)
+
+    if len(per_provider) < 2:
+        console.print(
+            "\n[red]Ensemble needs at least 2 successful providers. "
+            f"Got {len(per_provider)}.[/red]"
+        )
+        raise SystemExit(1)
+
+    ensemble = aggregate_ensemble(per_provider)
+
+    if fmt == "json":
+        out_path = output or Path(video_path.stem + "_ensemble.json")
+        save_ensemble_json(ensemble, out_path)
+        console.print(f"\n  Ensemble JSON saved to [cyan]{out_path}[/cyan]")
+    else:
+        print_ensemble_report(ensemble, video_path.name)
+        if output:
+            save_ensemble_json(ensemble, output)
+            console.print(f"\n  Ensemble JSON saved to [cyan]{output}[/cyan]")
 
 
 def _analyze_batch(
