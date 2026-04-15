@@ -32,6 +32,9 @@ class SegmentAnalysis:
     footwork_score: float = 5.0
     slot_score: float = 5.0
 
+    # Per-category chain-of-thought reasoning (keyed by category name)
+    reasoning: dict[str, str] = field(default_factory=dict)
+
     # Details
     off_beat_moments: list[dict] = field(default_factory=list)
     patterns: list[str] = field(default_factory=list)  # plain names for backward compat
@@ -91,6 +94,9 @@ class FinalScores:
     overall_low: float = 0.0
     overall_high: float = 0.0
     low_confidence: bool = False
+
+    # Per-category reasoning (from summary or first segment with reasoning)
+    reasoning: dict[str, str] = field(default_factory=dict)
 
     # Technique sub-scores
     posture: float = 0.0
@@ -230,10 +236,18 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         strengths = summary.highlights[:3] or _collect_top(scoring_segments, "highlights", 3)
         improvements = summary.improvements[:3] or _collect_top(scoring_segments, "improvements", 3)
         impression = summary.raw_data.get("overall_impression", "")
+        reasoning_final = dict(summary.reasoning) if summary.reasoning else {}
     else:
         strengths = _collect_top(scoring_segments, "highlights", 3)
         improvements = _collect_top(scoring_segments, "improvements", 3)
         impression = ""
+        reasoning_final = {}
+
+    if not reasoning_final:
+        for seg in scoring_segments:
+            for cat, text in seg.reasoning.items():
+                if text and cat not in reasoning_final:
+                    reasoning_final[cat] = text
 
     # Partner-specific scores — use summary if available, else average
     if summary and summary.lead_technique > 0:
@@ -275,6 +289,7 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         overall_low=round(overall_lo, 1),
         overall_high=round(overall_hi, 1),
         low_confidence=low_conf,
+        reasoning=reasoning_final,
         posture=round(posture, 1),
         extension=round(extension, 1),
         footwork=round(footwork, 1),

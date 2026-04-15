@@ -180,6 +180,37 @@ def test_low_confidence_flag_off_on_tight_intervals():
     assert scores.low_confidence is False
 
 
+def test_reasoning_from_summary_preferred():
+    seg = SegmentAnalysis(
+        start_time=0.0, end_time=4.0,
+        reasoning={"timing": "segment-level reasoning"},
+    )
+    summary = SegmentAnalysis(
+        start_time=0.0, end_time=8.0,
+        timing_score=7.0, technique_score=7.0, teamwork_score=7.0, presentation_score=7.0,
+        reasoning={"timing": "summary reasoning", "technique": "tech reasoning"},
+        raw_data={"overall_impression": "ok"},
+    )
+    scores = compute_final_scores([seg, summary])
+    assert scores.reasoning["timing"] == "summary reasoning"
+    assert scores.reasoning["technique"] == "tech reasoning"
+
+
+def test_reasoning_falls_back_to_segments():
+    seg1 = SegmentAnalysis(
+        start_time=0.0, end_time=4.0,
+        reasoning={"timing": "first segment timing"},
+    )
+    seg2 = SegmentAnalysis(
+        start_time=4.0, end_time=8.0,
+        reasoning={"timing": "second segment timing", "technique": "tech note"},
+    )
+    scores = compute_final_scores([seg1, seg2])
+    # First non-empty reasoning per category wins
+    assert scores.reasoning["timing"] == "first segment timing"
+    assert scores.reasoning["technique"] == "tech note"
+
+
 def test_summary_ci_used_when_present():
     seg1 = SegmentAnalysis(
         start_time=0.0, end_time=4.0,

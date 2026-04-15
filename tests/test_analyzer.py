@@ -226,6 +226,21 @@ class TestParseSegmentData:
         assert seg.timing_low >= 1.0
         assert seg.timing_high <= 10.0
 
+    def test_reasoning_parsed_per_category(self):
+        data = {
+            "timing": {"score": 7, "reasoning": "Anchors land clean on 3&4"},
+            "technique": {"score": 7, "reasoning": "Posture solid, slight slot drift"},
+            "teamwork": {"score": 7},  # missing reasoning — fine
+            "presentation": {"score": 7, "reasoning": ""},  # empty — skip
+        }
+        seg = parse_segment_data(data, 0.0, 4.0)
+        assert seg.reasoning == {
+            "timing": "Anchors land clean on 3&4",
+            "technique": "Posture solid, slight slot drift",
+        }
+        assert "teamwork" not in seg.reasoning
+        assert "presentation" not in seg.reasoning
+
     def test_summary_flat_sub_scores(self):
         # SUMMARY_PROMPT emits flat posture_score, not nested posture.score
         data = {
