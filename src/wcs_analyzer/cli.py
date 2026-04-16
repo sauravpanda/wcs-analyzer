@@ -158,9 +158,11 @@ def _analyze_single(
             console.print(f"\n  JSON report saved to [cyan]{out_path}[/cyan]")
         else:
             print_report(scores, video_path.name)
-            if output:
-                save_report_json(scores, output)
-                console.print(f"\n  Report saved to [cyan]{output}[/cyan]")
+            # Always persist a JSON copy alongside the terminal output so
+            # every run is replayable without re-burning tokens.
+            out_path = output or Path(video_path.stem + "_report.json")
+            save_report_json(scores, out_path)
+            console.print(f"\n  Report saved to [cyan]{out_path}[/cyan]")
 
     except WCSAnalyzerError as e:
         console.print(f"\n  [red]Error:[/red] {e}")
@@ -228,9 +230,9 @@ def _analyze_ensemble(
         console.print(f"\n  Ensemble JSON saved to [cyan]{out_path}[/cyan]")
     else:
         print_ensemble_report(ensemble, video_path.name)
-        if output:
-            save_ensemble_json(ensemble, output)
-            console.print(f"\n  Ensemble JSON saved to [cyan]{output}[/cyan]")
+        out_path = output or Path(video_path.stem + "_ensemble.json")
+        save_ensemble_json(ensemble, out_path)
+        console.print(f"\n  Ensemble JSON saved to [cyan]{out_path}[/cyan]")
 
 
 def _analyze_batch(
@@ -319,6 +321,9 @@ def _analyze_batch(
             console.print(f"\n  [cyan]{video_path.name}[/cyan] → {out_path}")
         else:
             print_report(scores, video_path.name)  # type: ignore[arg-type]
+            out_path = Path(video_path.stem + "_report.json")
+            save_report_json(scores, out_path)  # type: ignore[arg-type]
+            console.print(f"\n  Report saved to [cyan]{out_path}[/cyan]")
 
     # Summary
     console.print(f"\n{'=' * 60}")
