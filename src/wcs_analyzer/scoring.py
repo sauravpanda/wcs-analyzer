@@ -142,6 +142,13 @@ class FinalScores:
     # Aggregated API usage + estimated cost across all segments
     usage: UsageTotals = field(default_factory=UsageTotals)
 
+    # Video + competition metadata (set by CLI, not derived from scoring)
+    video_recorded_at: str = ""
+    competition: str = ""
+    comp_date: str = ""
+    comp_mode: str = ""     # j&j, strictly, classic, showcase
+    comp_stage: str = ""    # prelims, semis, finals, social
+
     # Per-segment data for timeline
     segments: list[SegmentAnalysis] = field(default_factory=list)
 

@@ -269,6 +269,13 @@ def print_timing_report(scores: FinalScores, video_name: str) -> None:
 def save_report_json(scores: FinalScores, path: Path) -> None:
     """Save the full report as JSON."""
     data = {
+        "metadata": {
+            "video_recorded_at": scores.video_recorded_at,
+            "competition": scores.competition,
+            "comp_date": scores.comp_date,
+            "comp_mode": scores.comp_mode,
+            "comp_stage": scores.comp_stage,
+        },
         "scores": {
             "overall": scores.overall,
             "overall_low": scores.overall_low,
@@ -412,9 +419,17 @@ def print_progress_report(
         cost_str = f"  ${row.estimated_cost:.4f}" if row.estimated_cost > 0 else ""
         date = row.created_at.replace("T", " ").split("+")[0]
         vid = row.video_name[:22] + ("\u2026" if len(row.video_name) > 22 else "")
+        comp_parts = []
+        if row.competition:
+            comp_parts.append(row.competition)
+        if row.comp_mode:
+            comp_parts.append(row.comp_mode)
+        if row.comp_stage:
+            comp_parts.append(row.comp_stage)
+        comp_str = f"  [cyan]{'  '.join(comp_parts)}[/cyan]" if comp_parts else ""
         console.print(
             f"    [dim]{i:>2}.[/dim] [{color}]{row.overall:>4.1f} ({row.grade})[/{color}]"
-            f"{trend_str}  [dim]{date}[/dim]  {vid}  [dim]{row.provider}{cost_str}[/dim]"
+            f"{trend_str}  [dim]{date}[/dim]  {vid}  [dim]{row.provider}{cost_str}[/dim]{comp_str}"
         )
 
     total_spend = sum(r.estimated_cost for r in rows)

@@ -2,7 +2,10 @@
 
 import base64
 import logging
+import os
+import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
@@ -100,6 +103,45 @@ def extract_frames(video_path: Path, fps: float = 3.0, max_dimension: int = 768)
         len(data.images), video_path, duration, width, height, fps,
     )
     return data
+
+
+def get_video_recorded_at(video_path: Path) -> str:
+    """Best-effort extraction of the video's recording timestamp.
+
+    Strategy:
+    1. Ask ffprobe for the container's `creation_time` tag (most
+       accurate for iPhone MOV / MP4 files).
+    2. Fall back to the file's birth time on macOS (`st_birthtime`)
+       or modification time elsewhere.
+
+    Returns an ISO 8601 UTC string, or "" if nothing could be determined.
+    """
+    # 1. Try ffprobe
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format_tags=creation_time",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(video_path),
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        ts = result.stdout.strip()
+        if ts:
+            return ts
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # 2. Fall back to OS file metadata
+    try:
+        stat = os.stat(video_path)
+        # macOS exposes birth time; Linux doesn't always
+        birth = getattr(stat, "st_birthtime", None)
+        t = birth if birth else stat.st_mtime
+        return datetime.fromtimestamp(t, tz=timezone.utc).isoformat(timespec="seconds")
+    except OSError:
+        return ""
 
 
 def get_video_duration(video_path: Path) -> float:
