@@ -195,6 +195,16 @@ Since you can hear the music, evaluate whether the dancers are truly on beat —
 listen for anchors landing on the downbeat, triples matching the rhythm, \
 and whether styling choices align with musical accents and breaks.
 
+For `pattern_timeline`, walk through the entire video chronologically and \
+commit to a contiguous list of time windows that cover the dance from start \
+to end. Every pattern the dancers execute must appear in exactly one window \
+— if you're not sure which pattern a window contains, describe your best \
+guess in `notes` and pick the closest known WCS pattern name. Typical WCS \
+patterns include: sugar push, left side pass, right side pass, tuck turn, \
+whip (and variants: basket whip, reverse whip, apache whip), underarm turn, \
+inside turn, free spin, starter step, basic in closed position, anchor step \
+variations. A 90-second routine usually has 15-25 pattern windows.
+
 Respond in this exact JSON format. Fill `reasoning` BEFORE `score` in each category:
 {
   "timing": {
@@ -237,12 +247,14 @@ Respond in this exact JSON format. Fill `reasoning` BEFORE `score` in each categ
     "styling": "<observations>",
     "notes": "<overall presentation observations>"
   },
-  "patterns_identified": [
+  "pattern_timeline": [
     {
-      "name": "<e.g., sugar push, left side pass, whip>",
+      "start_time": <seconds, float>,
+      "end_time": <seconds, float>,
+      "patterns": ["<pattern name, e.g. sugar push, whip, tuck turn>", "..."],
       "quality": "<strong|solid|needs_work|weak>",
       "timing": "<on_beat|slightly_off|off_beat>",
-      "notes": "<what was good or needs improvement in this pattern>"
+      "notes": "<what happened in this window>"
     }
   ],
   "highlights": ["<notable positive moments with approximate timestamps>"],

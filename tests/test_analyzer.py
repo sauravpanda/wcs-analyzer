@@ -489,3 +489,85 @@ class TestExtractPatternDetailsStringFallback:
         ])
         assert details[0]["quality"] == "strong"
         assert "quality" not in details[1]
+
+
+class TestPatternTimelineOutputFormat:
+    """New structured pattern_timeline output from Gemini forces the
+    model to commit to time windows and enumerate every pattern.
+    """
+
+    def test_timeline_format_populates_patterns_and_details(self):
+        data = {
+            "timing": {"score": 6.5},
+            "technique": {"score": 6.0},
+            "teamwork": {"score": 7.0},
+            "presentation": {"score": 6.0},
+            "pattern_timeline": [
+                {"start_time": 0.0, "end_time": 3.5, "patterns": ["starter step"], "quality": "solid", "timing": "on_beat", "notes": "clean lead-in"},
+                {"start_time": 3.5, "end_time": 9.0, "patterns": ["sugar push", "free spin"], "quality": "strong", "timing": "on_beat", "notes": "nice free spin on 3&4"},
+                {"start_time": 9.0, "end_time": 15.0, "patterns": ["whip"], "quality": "needs_work", "timing": "slightly_off", "notes": "lead rushed the anchor"},
+            ],
+        }
+        seg = parse_segment_data(data, 0.0, 15.0)
+        # patterns contains every name from the timeline
+        assert "starter step" in seg.patterns
+        assert "sugar push" in seg.patterns
+        assert "free spin" in seg.patterns
+        assert "whip" in seg.patterns
+        # pattern_details carries quality/timing/notes per pattern
+        names_with_quality = {p["name"]: p for p in seg.pattern_details}
+        assert names_with_quality["sugar push"]["quality"] == "strong"
+        assert names_with_quality["whip"]["timing"] == "slightly_off"
+        # raw timeline preserved
+        assert len(seg.pattern_timeline) == 3
+        assert seg.pattern_timeline[0]["start_time"] == 0.0
+        assert seg.pattern_timeline[1]["patterns"] == ["sugar push", "free spin"]
+
+    def test_old_flat_format_still_works(self):
+        """Cached segments from before this PR should still parse."""
+        data = {
+            "timing": {"score": 6},
+            "technique": {"score": 6},
+            "teamwork": {"score": 6},
+            "presentation": {"score": 6},
+            "patterns_identified": [
+                {"name": "sugar push", "quality": "solid", "timing": "on_beat"},
+                {"name": "whip", "quality": "strong", "timing": "on_beat"},
+            ],
+        }
+        seg = parse_segment_data(data, 0.0, 4.0)
+        assert seg.patterns == ["sugar push", "whip"]
+        # Timeline wasn't in the response, so stays empty
+        assert seg.pattern_timeline == []
+
+    def test_malformed_timeline_entries_skipped(self):
+        data = {
+            "timing": {"score": 6},
+            "technique": {"score": 6},
+            "teamwork": {"score": 6},
+            "presentation": {"score": 6},
+            "pattern_timeline": [
+                "not a dict",
+                {"start_time": "bad", "end_time": 5, "patterns": ["whip"]},  # bad start
+                {"start_time": 0.0, "end_time": 3.0, "patterns": ["sugar push"]},  # valid
+                {"start_time": 3.0, "end_time": 6.0, "patterns": []},  # empty patterns → skip
+                {"start_time": 6.0, "end_time": 9.0, "patterns": "not a list"},  # wrong type
+            ],
+        }
+        seg = parse_segment_data(data, 0.0, 9.0)
+        # Only the valid entry survives
+        assert len(seg.pattern_timeline) == 1
+        assert seg.pattern_timeline[0]["patterns"] == ["sugar push"]
+        assert seg.patterns == ["sugar push"]
+
+    def test_empty_timeline_falls_back_to_flat(self):
+        data = {
+            "timing": {"score": 6},
+            "technique": {"score": 6},
+            "teamwork": {"score": 6},
+            "presentation": {"score": 6},
+            "pattern_timeline": [],  # empty triggers fallback
+            "patterns_identified": [{"name": "whip"}],
+        }
+        seg = parse_segment_data(data, 0.0, 4.0)
+        assert seg.patterns == ["whip"]

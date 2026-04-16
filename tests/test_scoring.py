@@ -395,3 +395,27 @@ def test_is_summary_flag_preferred_over_start_time_heuristic():
     scores = compute_final_scores([seg1, seg2, summary])
     # Scores should come from the is_summary segment even though start_time != 0
     assert scores.timing == 9.0
+
+
+def test_final_scores_prefers_summary_pattern_timeline():
+    """When the summary segment has an explicit pattern_timeline (e.g.
+    from Gemini's structured output), that wins over the derived-from-
+    segments fallback."""
+    seg1 = SegmentAnalysis(
+        start_time=0.0, end_time=4.0,
+        patterns=["sugar push"],  # would feed derived timeline
+    )
+    summary = SegmentAnalysis(
+        start_time=0.0, end_time=8.0,
+        timing_score=7.0, technique_score=7.0, teamwork_score=7.0, presentation_score=7.0,
+        pattern_timeline=[
+            {"start_time": 0.0, "end_time": 3.0, "patterns": ["starter step"], "pattern_details": []},
+            {"start_time": 3.0, "end_time": 8.0, "patterns": ["whip", "free spin"], "pattern_details": []},
+        ],
+        raw_data={"overall_impression": "ok"},
+    )
+    scores = compute_final_scores([seg1, summary])
+    assert len(scores.pattern_timeline) == 2
+    # Should be the summary's explicit timeline, not the derived one
+    assert scores.pattern_timeline[0]["patterns"] == ["starter step"]
+    assert scores.pattern_timeline[1]["patterns"] == ["whip", "free spin"]
