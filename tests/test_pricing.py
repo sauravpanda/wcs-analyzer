@@ -142,3 +142,35 @@ class TestUsageTotals:
         b = UsageTotals.from_counts("unknown-model", 2000, 1000)
         total = a.add(b)
         assert total.pricing_known is False
+
+
+class TestUsageTotalsEmptySideNoTaint:
+    """Regression for the bug where a failed pattern pre-pass returns
+    an empty UsageTotals(pricing_known=False) and then corrupts the
+    main analysis usage when added at the end.
+    """
+
+    def test_empty_other_preserves_self(self):
+        main = UsageTotals.from_counts("gemini-3.1-pro-preview", 60000, 7000)
+        assert main.pricing_known is True
+        empty = UsageTotals(model="gemini-3.1-pro-preview")  # pricing_known default False
+        combined = main.add(empty)
+        assert combined.pricing_known is True
+        assert combined.input_tokens == 60000
+        assert combined.output_tokens == 7000
+        assert combined.estimated_cost == main.estimated_cost
+
+    def test_empty_self_preserves_other(self):
+        empty = UsageTotals(model="gemini-3.1-pro-preview")  # pricing_known=False
+        main = UsageTotals.from_counts("gemini-3.1-pro-preview", 60000, 7000)
+        combined = empty.add(main)
+        assert combined.pricing_known is True
+        assert combined.input_tokens == 60000
+
+    def test_both_non_empty_still_requires_both_known(self):
+        known = UsageTotals.from_counts("claude-sonnet-4-6", 1000, 500)
+        unknown = UsageTotals.from_counts("bogus-model", 2000, 1000)
+        combined = known.add(unknown)
+        # Both sides contribute tokens, so pricing_known ANDs as before
+        assert combined.pricing_known is False
+        assert combined.input_tokens == 3000

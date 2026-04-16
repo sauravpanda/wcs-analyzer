@@ -73,3 +73,42 @@ class TestAnalysisSchema:
         assert "technique" in parsed["properties"]
         assert "lead" in parsed["properties"]
         assert "follow" in parsed["properties"]
+
+
+class TestExtractJsonFromProse:
+    def test_fenced_json_after_prose(self):
+        from wcs_analyzer.claude_code_analyzer import _extract_json_from_prose
+        text = 'I reviewed the frames. Here is my analysis:\n\n```json\n{"timing": {"score": 7}, "technique": {"score": 8}}\n```\n\nLet me know if you need more.'
+        result = _extract_json_from_prose(text)
+        assert result == {"timing": {"score": 7}, "technique": {"score": 8}}
+
+    def test_bare_json_in_prose(self):
+        from wcs_analyzer.claude_code_analyzer import _extract_json_from_prose
+        text = 'Analysis complete: {"timing": {"score": 7.5}, "notes": "good"} — see details.'
+        result = _extract_json_from_prose(text)
+        assert result is not None
+        assert result["timing"]["score"] == 7.5
+
+    def test_handles_strings_with_braces(self):
+        """Braces inside string values shouldn't confuse the balance counter."""
+        from wcs_analyzer.claude_code_analyzer import _extract_json_from_prose
+        text = '```json\n{"notes": "uses { and } chars", "score": 5}\n```'
+        result = _extract_json_from_prose(text)
+        assert result == {"notes": "uses { and } chars", "score": 5}
+
+    def test_handles_escaped_quotes(self):
+        from wcs_analyzer.claude_code_analyzer import _extract_json_from_prose
+        text = '{"notes": "she said \\"nice whip\\"", "score": 7}'
+        result = _extract_json_from_prose(text)
+        assert result is not None
+        assert result["score"] == 7
+
+    def test_returns_none_on_no_json(self):
+        from wcs_analyzer.claude_code_analyzer import _extract_json_from_prose
+        assert _extract_json_from_prose("no json here at all") is None
+
+    def test_picks_first_valid_of_multiple(self):
+        from wcs_analyzer.claude_code_analyzer import _extract_json_from_prose
+        text = 'First: {"a": 1}. Second: {"b": 2}.'
+        result = _extract_json_from_prose(text)
+        assert result == {"a": 1}

@@ -86,7 +86,10 @@ def analyze_dance_gemini(
     # main scoring call as explicit context. The per-pattern focus
     # consistently outperforms asking the main prompt to enumerate
     # patterns while also scoring the dance.
-    pattern_usage = UsageTotals(model=model)
+    # Initialize via from_counts so pricing_known reflects the model
+    # lookup from the start — otherwise a skipped pre-pass combined
+    # with UsageTotals.add could taint the final total.
+    pattern_usage = UsageTotals.from_counts(model, 0, 0)
     if pattern_pre_pass:
         timeline, pattern_usage = detect_pattern_timeline_gemini(
             client, model, video_part, resolution,
@@ -167,6 +170,7 @@ def _call_gemini(
     resolution: types.MediaResolution,
     max_retries: int = 3,
     thinking_level: str = "high",
+    temperature: float = 0.0,
 ) -> tuple[str, UsageTotals]:
     """Call Gemini API with retries, returning response text + usage.
 
@@ -174,6 +178,10 @@ def _call_gemini(
     first-time users get the best pattern recognition and rubric
     reasoning. Gemini 3 Pro doesn't let you fully disable thinking,
     so even `thinking_level="minimal"` still does some reasoning.
+
+    Temperature defaults to 0 for reproducibility — rubric grading
+    wants stable, replayable scores, not creative variation. Pass a
+    higher value (up to 2.0) for more variation in qualitative notes.
 
     Usage accounting folds `thoughts_token_count` into the output
     bucket so cost tracking reflects the real billed spend.
@@ -185,6 +193,7 @@ def _call_gemini(
         "system_instruction": SYSTEM_PROMPT,
         "max_output_tokens": 8192,
         "media_resolution": resolution,
+        "temperature": temperature,
     }
     if "gemini-3" in model or "gemini-3.1" in model:
         try:
@@ -250,7 +259,7 @@ def detect_pattern_timeline_gemini(
         )
     except AnalysisError as e:
         logger.warning("Gemini pattern pre-pass failed, skipping: %s", e)
-        return [], UsageTotals(model=model)
+        return [], UsageTotals.from_counts(model, 0, 0)
 
     data = safe_parse_json(raw)
     if data is None or "patterns" not in data:
