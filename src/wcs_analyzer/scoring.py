@@ -47,6 +47,11 @@ class SegmentAnalysis:
     off_beat_moments: list[dict] = field(default_factory=list)
     patterns: list[str] = field(default_factory=list)  # plain names for backward compat
     pattern_details: list[dict] = field(default_factory=list)  # rich pattern info
+    # Chronological timeline of (start, end, patterns, quality, timing, notes)
+    # entries — populated when the provider returns structured timeline
+    # output instead of a flat list. Takes precedence over compute_final_scores'
+    # derived timeline if present.
+    pattern_timeline: list[dict] = field(default_factory=list)
     highlights: list[str] = field(default_factory=list)
     improvements: list[str] = field(default_factory=list)
 
@@ -267,19 +272,27 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
                 seen_detail_names.add(name)
                 all_pattern_details.append(pd)
 
-    # Pattern timeline: one entry per segment that had patterns, carrying
-    # both the plain names and the rich details so the report can render
-    # a per-time-window view.
-    pattern_timeline = [
-        {
-            "start_time": seg.start_time,
-            "end_time": seg.end_time,
-            "patterns": seg.patterns,
-            "pattern_details": seg.pattern_details,
-        }
-        for seg in scoring_segments
-        if seg.patterns
-    ]
+    # Pattern timeline: prefer an explicit timeline returned by the
+    # provider (e.g. Gemini emits a structured pattern_timeline field
+    # when asked). Otherwise derive one by projecting each per-phrase
+    # segment's patterns onto its time window.
+    if summary and summary.pattern_timeline:
+        pattern_timeline = list(summary.pattern_timeline)
+    elif any(seg.pattern_timeline for seg in scoring_segments):
+        pattern_timeline = []
+        for seg in scoring_segments:
+            pattern_timeline.extend(seg.pattern_timeline)
+    else:
+        pattern_timeline = [
+            {
+                "start_time": seg.start_time,
+                "end_time": seg.end_time,
+                "patterns": seg.patterns,
+                "pattern_details": seg.pattern_details,
+            }
+            for seg in scoring_segments
+            if seg.patterns
+        ]
 
     # Use summary for strengths/improvements, or aggregate
     if summary:

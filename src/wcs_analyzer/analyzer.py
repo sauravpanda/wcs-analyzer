@@ -139,7 +139,54 @@ def parse_segment_data(
         if block.get("reasoning")
     }
 
-    patterns_raw = data.get("patterns_identified", data.get("patterns_seen", []))
+    # Structured timeline format takes precedence over the flat
+    # patterns_identified list — forces the model to commit to every
+    # time window and enumerate patterns chronologically, which
+    # catches fine-grained patterns that a single flat enumeration
+    # would drop. Falls back to the legacy flat format for backward
+    # compat with cached segments and older prompts.
+    timeline_raw = data.get("pattern_timeline")
+    pattern_timeline: list[dict] = []
+    if isinstance(timeline_raw, list) and timeline_raw:
+        patterns_from_timeline: list[dict] = []
+        for entry in timeline_raw:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                start = float(entry.get("start_time", 0.0))
+                end = float(entry.get("end_time", start))
+            except (TypeError, ValueError):
+                continue
+            names = entry.get("patterns") or []
+            if not isinstance(names, list):
+                continue
+            clean_names = [str(n).strip() for n in names if n]
+            if not clean_names:
+                continue
+            pattern_timeline.append({
+                "start_time": start,
+                "end_time": end,
+                "patterns": clean_names,
+                "pattern_details": [
+                    {
+                        "name": name,
+                        "quality": entry.get("quality"),
+                        "timing": entry.get("timing"),
+                        "notes": entry.get("notes", ""),
+                    }
+                    for name in clean_names
+                ],
+            })
+            for name in clean_names:
+                patterns_from_timeline.append({
+                    "name": name,
+                    "quality": entry.get("quality"),
+                    "timing": entry.get("timing"),
+                    "notes": entry.get("notes", ""),
+                })
+        patterns_raw: list = patterns_from_timeline
+    else:
+        patterns_raw = data.get("patterns_identified", data.get("patterns_seen", []))
 
     return SegmentAnalysis(
         start_time=start_time,
@@ -161,6 +208,7 @@ def parse_segment_data(
         footwork_score=_sub_score(technique, "footwork"),
         slot_score=_sub_score(technique, "slot"),
         reasoning=reasoning,
+        pattern_timeline=pattern_timeline,
         off_beat_moments=timing.get("off_beat_moments", []) or [],
         patterns=_extract_pattern_names(patterns_raw),
         pattern_details=_extract_pattern_details(patterns_raw),
