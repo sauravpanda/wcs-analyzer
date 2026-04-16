@@ -42,6 +42,25 @@ class TestGetPricing:
     def test_unknown_model(self):
         assert get_pricing("bogus-model") is None
 
+    def test_default_models_have_pricing(self):
+        """Every provider's default model must be in the price table.
+
+        Guards against future drift where we bump the default but
+        forget to add a pricing entry — the analyzer would then report
+        `$0.00 (unknown model)` on every run.
+        """
+        from wcs_analyzer.cli import _DEFAULT_MODELS
+        for provider, model in _DEFAULT_MODELS.items():
+            p = get_pricing(model)
+            assert p is not None, f"Default model for {provider} ({model}) has no pricing entry"
+
+    def test_gemini_3_pro_pricing(self):
+        p = get_pricing("gemini-3.1-pro-preview")
+        assert p is not None
+        # Standard-tier published prices as of 2026-04: $2 / $12
+        assert p.input_per_mtok == 2.00
+        assert p.output_per_mtok == 12.00
+
 
 class TestPricingOverride:
     def test_env_override_replaces_defaults(self, tmp_path: Path, monkeypatch):

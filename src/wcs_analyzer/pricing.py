@@ -33,6 +33,14 @@ logger = logging.getLogger(__name__)
 PRICING_UPDATED_ON = "2026-04-15"
 
 
+# Gemini 3.x uses tiered pricing above 200k tokens (input $4/M, output $18/M).
+# This module tracks a single flat rate per model, so we use the standard
+# tier — the overwhelming majority of WCS clips stay well under 200k tokens.
+# If you frequently analyze long ensemble reels, set WCS_PRICING_FILE to
+# override these numbers.
+_GEMINI_3_LONG_CONTEXT_THRESHOLD_TOKENS = 200_000
+
+
 @dataclass
 class ModelPricing:
     """USD cost per million tokens for a given model."""
@@ -46,7 +54,12 @@ class ModelPricing:
 # and total_token_count already sums them, so we use a single rate per
 # model here. Update PRICING_UPDATED_ON whenever this table moves.
 _DEFAULT_PRICING: dict[str, ModelPricing] = {
-    # Google Gemini
+    # Google Gemini 3.x (current default is gemini-3.1-pro-preview)
+    # Standard tier: <= 200k input tokens. See comment above about
+    # long-context tiering.
+    "gemini-3.1-pro-preview": ModelPricing(2.00, 12.00),
+    "gemini-3-pro": ModelPricing(2.00, 12.00),  # alias / shorthand
+    # Google Gemini 2.x
     "gemini-2.5-flash": ModelPricing(0.30, 2.50),
     "gemini-2.5-pro": ModelPricing(1.25, 10.00),
     "gemini-1.5-flash": ModelPricing(0.075, 0.30),

@@ -116,7 +116,7 @@ wcs-analyzer analyze video.mp4 [OPTIONS]
 |---|---|---|
 | `--provider` | `gemini` | AI provider: `gemini` (native video+audio), `claude` (API, frame-based), or `claude-code` (local CLI) |
 | `--providers` | — | Comma-separated list for **ensemble mode** (e.g. `gemini,claude-code`). Each runs independently; results are aggregated with disagreement flagging |
-| `--model` | auto | Model ID (defaults to `gemini-2.5-flash` or `claude-sonnet-4-6`) |
+| `--model` | auto | Model ID (defaults to `gemini-3.1-pro-preview` or `claude-sonnet-4-6`) |
 | `--detail` | `medium` | Analysis granularity: `low`, `medium`, `high` |
 | `--fps` | `3.0` | Frames per second to sample — Claude only (1-30) |
 | `--dancers` | — | Describe which dancers to focus on (for crowded floors) |
@@ -140,8 +140,11 @@ wcs-analyzer analyze competition.mp4 --dancers "lead in blue shirt, follow in re
 # Use Claude instead
 wcs-analyzer analyze competition.mp4 --provider claude
 
-# High detail with Gemini Pro
-wcs-analyzer analyze competition.mp4 --model gemini-2.5-pro --detail high
+# High detail with Gemini 3 Pro (default) — richer, slower, pricier
+wcs-analyzer analyze competition.mp4 --detail high
+
+# Or explicitly pin the older, cheaper Gemini 2.5 Flash
+wcs-analyzer analyze competition.mp4 --model gemini-2.5-flash
 
 # Export as CSV
 wcs-analyzer analyze competition.mp4 --format csv -o scores.csv
