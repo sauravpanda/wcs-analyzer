@@ -41,7 +41,7 @@ def main():
 
 # Default models per provider
 _DEFAULT_MODELS = {
-    "gemini": "gemini-2.5-flash",
+    "gemini": "gemini-3.1-pro-preview",
     "claude": "claude-sonnet-4-6",
     "claude-code": "claude-sonnet-4-6",
 }
