@@ -102,6 +102,22 @@ def extract_frames(video_path: Path, fps: float = 3.0, max_dimension: int = 768)
     return data
 
 
+def get_video_duration(video_path: Path) -> float:
+    """Return the duration of a video in seconds without extracting frames.
+
+    Used by the Gemini path (which hands the whole video to the model
+    and doesn't otherwise need a frame decode) to validate the clip
+    length before paying for an upload.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise VideoProcessingError(f"Cannot open video: {video_path}")
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    return frame_count / fps if fps > 0 else 0.0
+
+
 def group_frames_by_phrase(
     frames: FrameData, beats_per_phrase: int = 8, bpm: float = 120.0
 ) -> list[dict]:

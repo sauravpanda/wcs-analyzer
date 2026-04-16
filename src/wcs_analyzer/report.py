@@ -184,22 +184,29 @@ def print_report(scores: FinalScores, video_name: str) -> None:
     if scores.pattern_details:
         pat_table = Table(title="Pattern Analysis", show_header=True, header_style="bold cyan")
         pat_table.add_column("Pattern", style="bold", width=22)
+        pat_table.add_column("Seen", justify="center", width=6)
         pat_table.add_column("Quality", justify="center", width=12)
         pat_table.add_column("Timing", justify="center", width=12)
-        pat_table.add_column("Notes", width=40)
+        pat_table.add_column("Notes", width=36)
 
         quality_colors = {"strong": "green", "solid": "yellow", "needs_work": "dark_orange", "weak": "red"}
         timing_colors = {"on_beat": "green", "slightly_off": "yellow", "off_beat": "red"}
 
         for pd in scores.pattern_details:
-            q = pd.get("quality", "solid")
-            t = pd.get("timing", "on_beat")
-            qc = quality_colors.get(q, "white")
-            tc = timing_colors.get(t, "white")
+            q = pd.get("quality")
+            t = pd.get("timing")
+            qc = quality_colors.get(q or "", "dim")
+            tc = timing_colors.get(t or "", "dim")
+            q_str = q.replace("_", " ") if q else "?"
+            t_str = t.replace("_", " ") if t else "?"
+            name = pd.get("name", "?")
+            count = scores.pattern_counts.get(name, 1)
+            count_str = f"[cyan]{count}×[/cyan]" if count > 1 else f"[dim]{count}×[/dim]"
             pat_table.add_row(
-                pd.get("name", "?"),
-                f"[{qc}]{q.replace('_', ' ')}[/{qc}]",
-                f"[{tc}]{t.replace('_', ' ')}[/{tc}]",
+                name,
+                count_str,
+                f"[{qc}]{q_str}[/{qc}]",
+                f"[{tc}]{t_str}[/{tc}]",
                 pd.get("notes", ""),
             )
 
@@ -207,6 +214,22 @@ def print_report(scores: FinalScores, video_name: str) -> None:
         console.print()
     elif scores.all_patterns:
         console.print(f"  [bold]Patterns identified:[/bold] {', '.join(scores.all_patterns)}")
+        console.print()
+
+    # Pattern timeline — shown only when at least two time windows had
+    # patterns, otherwise it's redundant with the pattern analysis table.
+    if len(scores.pattern_timeline) >= 2:
+        tl_table = Table(title="Pattern Timeline", show_header=True, header_style="bold cyan")
+        tl_table.add_column("Time", justify="center", width=14)
+        tl_table.add_column("Patterns", width=60)
+
+        for entry in scores.pattern_timeline:
+            start = _format_time(entry["start_time"])
+            end = _format_time(entry["end_time"])
+            names = entry.get("patterns", [])
+            tl_table.add_row(f"{start} \u2192 {end}", "  \u00b7  ".join(names) if names else "\u2014")
+
+        console.print(tl_table)
         console.print()
 
     # Strengths

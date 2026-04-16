@@ -69,25 +69,27 @@ def segments_to_dicts(segments: list) -> list[dict]:
 
 
 def dicts_to_segments(data: list[dict]) -> list:
-    """Restore SegmentAnalysis list from cached dicts."""
+    """Restore SegmentAnalysis list from cached dicts.
+
+    Rehydrates every dataclass field present in the cached dict, so
+    fields added over time (pattern_details, confidence intervals,
+    reasoning, usage, is_summary, etc.) aren't silently dropped on a
+    cache hit. Unknown fields are ignored so old caches stay readable.
+    The nested `usage` dict is re-inflated to a UsageTotals instance.
+    """
+    from dataclasses import fields
+
+    from .pricing import UsageTotals
     from .scoring import SegmentAnalysis
+
+    valid = {f.name for f in fields(SegmentAnalysis)}
     results = []
     for d in data:
-        results.append(SegmentAnalysis(
-            start_time=d.get("start_time", 0.0),
-            end_time=d.get("end_time", 0.0),
-            timing_score=d.get("timing_score", 5.0),
-            technique_score=d.get("technique_score", 5.0),
-            teamwork_score=d.get("teamwork_score", 5.0),
-            presentation_score=d.get("presentation_score", 5.0),
-            posture_score=d.get("posture_score", 5.0),
-            extension_score=d.get("extension_score", 5.0),
-            footwork_score=d.get("footwork_score", 5.0),
-            slot_score=d.get("slot_score", 5.0),
-            off_beat_moments=d.get("off_beat_moments", []),
-            patterns=d.get("patterns", []),
-            highlights=d.get("highlights", []),
-            improvements=d.get("improvements", []),
-            raw_data=d.get("raw_data", {}),
-        ))
+        kwargs = {k: v for k, v in d.items() if k in valid}
+        # Re-inflate nested dataclasses serialized by asdict()
+        if isinstance(kwargs.get("usage"), dict):
+            usage_dict = kwargs["usage"]
+            usage_valid = {f.name for f in fields(UsageTotals)}
+            kwargs["usage"] = UsageTotals(**{k: v for k, v in usage_dict.items() if k in usage_valid})
+        results.append(SegmentAnalysis(**kwargs))
     return results

@@ -469,3 +469,23 @@ class TestDetectPatternTimeline:
         content = mock_call.call_args[0][2]
         image_blocks = [c for c in content if c.get("type") == "image"]
         assert len(image_blocks) == 10
+
+
+class TestExtractPatternDetailsStringFallback:
+    def test_string_patterns_lack_quality_timing(self):
+        """String-form patterns shouldn't get fabricated 'solid'/'on_beat' defaults."""
+        from wcs_analyzer.analyzer import _extract_pattern_details
+        details = _extract_pattern_details(["Sugar Push", "Whip"])
+        assert len(details) == 2
+        assert details[0]["name"] == "Sugar Push"
+        assert "quality" not in details[0]
+        assert "timing" not in details[0]
+
+    def test_dict_patterns_preserve_quality_timing(self):
+        from wcs_analyzer.analyzer import _extract_pattern_details
+        details = _extract_pattern_details([
+            {"name": "Sugar Push", "quality": "strong", "timing": "on_beat"},
+            "Whip",  # Mixed list
+        ])
+        assert details[0]["quality"] == "strong"
+        assert "quality" not in details[1]

@@ -37,6 +37,12 @@ class SegmentAnalysis:
     # Per-category chain-of-thought reasoning (keyed by category name)
     reasoning: dict[str, str] = field(default_factory=dict)
 
+    # Explicit marker that this segment is a whole-video summary, not a
+    # per-phrase analysis. Preferred over the old `start_time == 0.0`
+    # heuristic so a legitimate first segment that happens to start at 0
+    # never gets mistaken for a summary.
+    is_summary: bool = False
+
     # Details
     off_beat_moments: list[dict] = field(default_factory=list)
     patterns: list[str] = field(default_factory=list)  # plain names for backward compat
@@ -122,6 +128,8 @@ class FinalScores:
     off_beat_moments: list[dict] = field(default_factory=list)
     all_patterns: list[str] = field(default_factory=list)
     pattern_details: list[dict] = field(default_factory=list)
+    pattern_counts: dict[str, int] = field(default_factory=dict)
+    pattern_timeline: list[dict] = field(default_factory=list)
     top_strengths: list[str] = field(default_factory=list)
     top_improvements: list[str] = field(default_factory=list)
     overall_impression: str = ""
@@ -148,8 +156,13 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
     if not segments:
         return FinalScores()
 
-    # Check if last segment is a summary (covers full duration)
-    has_summary = len(segments) > 1 and segments[-1].start_time == 0.0
+    # Check if last segment is a summary. Prefer the explicit is_summary
+    # flag; fall back to the legacy `start_time == 0.0` heuristic for
+    # backward compatibility with cached segments written before that
+    # field existed.
+    has_summary = len(segments) > 1 and (
+        segments[-1].is_summary or segments[-1].start_time == 0.0
+    )
     scoring_segments = segments[:-1] if has_summary else segments
     summary = segments[-1] if has_summary else None
 
@@ -227,16 +240,24 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
     for seg in scoring_segments:
         all_off_beat.extend(seg.off_beat_moments)
 
-    # Collect patterns (deduplicated)
-    seen_patterns = set()
-    all_patterns = []
+    # Count pattern occurrences and collect unique display names in the
+    # order they were first seen. The counts drive the "Seen N×" column
+    # in the pattern report so repeated patterns (very common in WCS)
+    # don't look like single-occurrence events.
+    raw_counts: dict[str, int] = {}
+    display_names: dict[str, str] = {}
+    all_patterns: list[str] = []
     for seg in scoring_segments:
         for p in seg.patterns:
-            if p.lower() not in seen_patterns:
-                seen_patterns.add(p.lower())
+            key = p.lower()
+            raw_counts[key] = raw_counts.get(key, 0) + 1
+            if key not in display_names:
+                display_names[key] = p
                 all_patterns.append(p)
 
-    # Collect pattern details (deduplicated by name)
+    pattern_counts = {display_names[k]: v for k, v in raw_counts.items()}
+
+    # Collect pattern details (deduplicated by name, first occurrence wins)
     seen_detail_names: set[str] = set()
     all_pattern_details = []
     for seg in scoring_segments:
@@ -245,6 +266,20 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
             if name and name not in seen_detail_names:
                 seen_detail_names.add(name)
                 all_pattern_details.append(pd)
+
+    # Pattern timeline: one entry per segment that had patterns, carrying
+    # both the plain names and the rich details so the report can render
+    # a per-time-window view.
+    pattern_timeline = [
+        {
+            "start_time": seg.start_time,
+            "end_time": seg.end_time,
+            "patterns": seg.patterns,
+            "pattern_details": seg.pattern_details,
+        }
+        for seg in scoring_segments
+        if seg.patterns
+    ]
 
     # Use summary for strengths/improvements, or aggregate
     if summary:
@@ -319,6 +354,8 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         off_beat_moments=all_off_beat,
         all_patterns=all_patterns,
         pattern_details=all_pattern_details,
+        pattern_counts=pattern_counts,
+        pattern_timeline=pattern_timeline,
         top_strengths=strengths,
         top_improvements=improvements,
         overall_impression=impression,
