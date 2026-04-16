@@ -64,8 +64,10 @@ class TestParseResponse:
 
 class TestDetailFPS:
     def test_fps_levels(self):
+        # Medium bumped from 2 → 3 so fast WCS transitions don't slip
+        # between samples when running pattern pre-pass + analysis.
         assert _DETAIL_FPS["low"] == 1
-        assert _DETAIL_FPS["medium"] == 2
+        assert _DETAIL_FPS["medium"] == 3
         assert _DETAIL_FPS["high"] == 5
 
 
@@ -88,7 +90,11 @@ class TestAnalyzeDanceGemini:
         usage = UsageTotals.from_counts("gemini-2.5-flash", 1000, 500)
         mock_call.return_value = (VALID_GEMINI_RESPONSE, usage)
 
-        results = analyze_dance_gemini(video, model="gemini-2.5-flash", detail="medium")
+        # Disable the pattern pre-pass so we only get one _call_gemini
+        # invocation and the token counts are deterministic.
+        results = analyze_dance_gemini(
+            video, model="gemini-2.5-flash", detail="medium", pattern_pre_pass=False,
+        )
         assert len(results) == 1
         assert results[0].timing_score == 8.0
         assert results[0].usage.input_tokens == 1000
@@ -106,7 +112,9 @@ class TestAnalyzeDanceGemini:
         mock_upload.return_value = MagicMock()
         mock_call.return_value = (VALID_GEMINI_RESPONSE, UsageTotals.from_counts("gemini-2.5-flash", 1, 1))
 
-        results = analyze_dance_gemini(video, model="gemini-2.5-flash", detail="medium")
+        results = analyze_dance_gemini(
+            video, model="gemini-2.5-flash", detail="medium", pattern_pre_pass=False,
+        )
         assert len(results) == 1
         mock_upload.assert_called_once()
 
@@ -127,3 +135,94 @@ class TestDancerContext:
         prompt = GEMINI_VIDEO_PROMPT.replace("{dancer_context}", "")
         assert "Watch and listen" in prompt
         assert "{dancer_context}" not in prompt
+
+
+class TestGeminiPatternPrePass:
+    @patch("wcs_analyzer.gemini_analyzer._call_gemini")
+    def test_pre_pass_feeds_timeline_into_main_call(self, mock_call: MagicMock):
+        """When pattern_pre_pass is on, the main call should receive a
+        prompt that names the detected patterns."""
+        import json
+        from wcs_analyzer.pricing import UsageTotals
+
+        # Two sequential _call_gemini invocations: first is pattern
+        # detection, second is main analysis.
+        pattern_response = json.dumps({
+            "patterns": [
+                {"start_time": 0.0, "end_time": 4.0, "name": "sugar push", "confidence": 0.9},
+                {"start_time": 4.0, "end_time": 8.0, "name": "whip", "confidence": 0.8},
+            ]
+        })
+        mock_call.side_effect = [
+            (pattern_response, UsageTotals.from_counts("gemini-3.1-pro-preview", 500, 200)),
+            (VALID_GEMINI_RESPONSE, UsageTotals.from_counts("gemini-3.1-pro-preview", 1500, 800)),
+        ]
+
+        with patch("wcs_analyzer.gemini_analyzer._inline_video") as mock_inline, \
+             patch("wcs_analyzer.gemini_analyzer.genai.Client"):
+            mock_inline.return_value = MagicMock()
+            video = Path("/tmp/fake.mp4")
+            video.write_bytes(b"x" * 1000)
+            try:
+                results = analyze_dance_gemini(
+                    video, model="gemini-3.1-pro-preview", detail="medium",
+                    pattern_pre_pass=True,
+                )
+            finally:
+                video.unlink(missing_ok=True)
+
+        assert len(results) == 1
+        assert mock_call.call_count == 2
+        # The second call's prompt should reference the detected patterns
+        second_call_contents = mock_call.call_args_list[1].kwargs["contents"]
+        main_prompt = second_call_contents[-1]  # Last element is the text prompt
+        assert "sugar push" in main_prompt.lower()
+        assert "whip" in main_prompt.lower()
+        assert "DETECTED PATTERN TIMELINE" in main_prompt
+        # Combined usage from both calls
+        assert results[0].usage.input_tokens == 2000
+        assert results[0].usage.output_tokens == 1000
+
+    @patch("wcs_analyzer.gemini_analyzer._call_gemini")
+    def test_pre_pass_gracefully_skips_on_unparseable_response(self, mock_call: MagicMock):
+        """If the pre-pass returns garbage, the main analysis still runs."""
+        from wcs_analyzer.pricing import UsageTotals
+        mock_call.side_effect = [
+            ("garbage not json", UsageTotals.from_counts("gemini-3.1-pro-preview", 100, 50)),
+            (VALID_GEMINI_RESPONSE, UsageTotals.from_counts("gemini-3.1-pro-preview", 1500, 800)),
+        ]
+        with patch("wcs_analyzer.gemini_analyzer._inline_video") as mock_inline, \
+             patch("wcs_analyzer.gemini_analyzer.genai.Client"):
+            mock_inline.return_value = MagicMock()
+            video = Path("/tmp/fake2.mp4")
+            video.write_bytes(b"x" * 1000)
+            try:
+                results = analyze_dance_gemini(
+                    video, model="gemini-3.1-pro-preview", detail="medium",
+                    pattern_pre_pass=True,
+                )
+            finally:
+                video.unlink(missing_ok=True)
+        assert len(results) == 1
+        # Both calls still counted toward usage
+        assert mock_call.call_count == 2
+
+
+class TestFormatPatternTimelineForPrompt:
+    def test_format_includes_all_patterns(self):
+        from wcs_analyzer.gemini_analyzer import _format_pattern_timeline_for_prompt
+        from wcs_analyzer.analyzer import PatternSegment
+        timeline = [
+            PatternSegment(start_time=0.0, end_time=3.5, name="sugar push", confidence=0.9),
+            PatternSegment(start_time=3.5, end_time=8.0, name="whip", confidence=0.7),
+        ]
+        text = _format_pattern_timeline_for_prompt(timeline)
+        assert "sugar push" in text
+        assert "whip" in text
+        assert "DETECTED PATTERN TIMELINE" in text
+        assert "trust" in text.lower()
+
+    def test_format_empty_timeline(self):
+        from wcs_analyzer.gemini_analyzer import _format_pattern_timeline_for_prompt
+        text = _format_pattern_timeline_for_prompt([])
+        assert "DETECTED PATTERN TIMELINE" in text

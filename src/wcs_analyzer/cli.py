@@ -506,9 +506,10 @@ def timing(video_path: Path, provider: str, dancers: str | None, verbose: bool):
 
 @main.command()
 @click.argument("video_path", type=click.Path(exists=True, path_type=Path))
-@click.option("--model", default="claude-sonnet-4-6", help="Claude model for pattern detection.")
-@click.option("--fps", type=float, default=3.0, callback=_validate_fps, help="Frame sampling rate.")
-def patterns(video_path: Path, model: str, fps: float):
+@click.option("--provider", type=click.Choice(["gemini", "claude"]), default="gemini", help="Which model runs the pattern detection.")
+@click.option("--model", default=None, help="Model ID (defaults to provider's best).")
+@click.option("--fps", type=float, default=3.0, callback=_validate_fps, help="Frame sampling rate (Claude only).")
+def patterns(video_path: Path, provider: str, model: str | None, fps: float):
     """Detect and list the WCS patterns on the video's timeline.
 
     Runs a single cheap LLM call to pre-segment the dance into named
@@ -516,21 +517,47 @@ def patterns(video_path: Path, model: str, fps: float):
     ranges. Useful before a full analysis so you know what the scorer
     is actually looking at.
     """
-    import anthropic
     from rich.table import Table
-    from .analyzer import detect_pattern_timeline
     from .video import extract_frames
 
-    console.print(f"\n[bold]WCS Analyzer[/bold] — pattern timeline for [cyan]{video_path.name}[/cyan]\n")
+    model = model or _DEFAULT_MODELS.get(provider, _DEFAULT_MODELS["gemini"])
+    console.print(f"\n[bold]WCS Analyzer[/bold] — pattern timeline for [cyan]{video_path.name}[/cyan]")
+    console.print(f"  Provider: [bold]{provider}[/bold] ({model})\n")
 
     try:
-        with console.status("Extracting frames..."):
-            frames = extract_frames(video_path, fps=fps)
-        console.print(f"  Extracted [green]{len(frames.images)}[/green] frames")
+        if provider == "gemini":
+            from google import genai
+            from google.genai import types
+            from .gemini_analyzer import (
+                _INLINE_LIMIT,
+                _inline_video,
+                _upload_video,
+                detect_pattern_timeline_gemini,
+            )
 
-        client = anthropic.Anthropic()
-        with console.status("Detecting patterns..."):
-            timeline = detect_pattern_timeline(client, model, frames)
+            client = genai.Client()
+            file_size = video_path.stat().st_size
+            with console.status("Uploading video to Gemini..."):
+                if file_size > _INLINE_LIMIT:
+                    video_part = _upload_video(client, video_path, fps=3)
+                else:
+                    video_part = _inline_video(video_path, fps=3)
+            with console.status("Detecting patterns (Gemini 3 Pro, high thinking)..."):
+                timeline, _ = detect_pattern_timeline_gemini(
+                    client, model, video_part,
+                    types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+                )
+        else:
+            import anthropic
+            from .analyzer import detect_pattern_timeline
+
+            with console.status("Extracting frames..."):
+                frames = extract_frames(video_path, fps=fps)
+            console.print(f"  Extracted [green]{len(frames.images)}[/green] frames")
+
+            ac = anthropic.Anthropic()
+            with console.status("Detecting patterns..."):
+                timeline = detect_pattern_timeline(ac, model, frames)
     except WCSAnalyzerError as e:
         console.print(f"\n  [red]Error:[/red] {e}")
         raise SystemExit(1)
