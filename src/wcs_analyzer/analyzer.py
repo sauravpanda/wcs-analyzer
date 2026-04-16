@@ -406,8 +406,12 @@ def _call_claude(
     model: str,
     content: list,  # type: ignore[type-arg]
     max_retries: int = 3,
+    temperature: float = 0.0,
 ) -> tuple[str, UsageTotals]:
     """Call Claude API with retries for rate limiting.
+
+    Temperature defaults to 0 for reproducibility — rubric grading
+    wants stable, replayable scores, not creative variation.
 
     Returns the response text plus a UsageTotals capturing the token
     counts and estimated cost for this call.
@@ -418,6 +422,7 @@ def _call_claude(
                 model=model,
                 max_tokens=4096,
                 system=SYSTEM_PROMPT,
+                temperature=temperature,
                 messages=[{"role": "user", "content": content}],
             )
             block = response.content[0]

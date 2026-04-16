@@ -229,16 +229,86 @@ def _call_claude_cli(claude_path: str, prompt: str, timeout: int = 300) -> tuple
     try:
         return json.loads(result_text), usage  # type: ignore[no-any-return]
     except (json.JSONDecodeError, TypeError):
-        # Try to extract JSON from markdown fences
-        text = str(result_text).strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
+        pass
+
+    # Try to extract JSON from markdown fences
+    text = str(result_text).strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    try:
+        return json.loads(text.strip()), usage  # type: ignore[no-any-return]
+    except json.JSONDecodeError:
+        pass
+
+    # Last resort: Claude sometimes emits prose, then a fenced JSON block,
+    # then more prose. Scan for the first valid JSON object by locating a
+    # ```json fence, and if that fails, the first { and balanced }.
+    parsed = _extract_json_from_prose(str(result_text))
+    if parsed is not None:
+        return parsed, usage
+    raise AnalysisError(f"Could not parse analysis result: {str(result_text)[:300]}")
+
+
+def _extract_json_from_prose(text: str) -> dict | None:
+    """Pull a JSON object out of a prose+JSON response.
+
+    Claude Code CLI sometimes prefixes its JSON with explanatory prose,
+    wraps it in a ```json fence, or appends more prose after. Try three
+    strategies in order, returning the first one that parses.
+    """
+    # 1. Look for a ```json (or bare ```) fence anywhere in the text
+    for marker in ("```json", "```"):
+        start = text.find(marker)
+        if start == -1:
+            continue
+        content_start = start + len(marker)
+        end = text.find("```", content_start)
+        if end == -1:
+            continue
+        candidate = text[content_start:end].strip()
         try:
-            return json.loads(text.strip()), usage  # type: ignore[no-any-return]
+            result = json.loads(candidate)
         except json.JSONDecodeError:
-            raise AnalysisError(f"Could not parse analysis result: {str(result_text)[:300]}")
+            continue
+        if isinstance(result, dict):
+            return result
+
+    # 2. Scan for the first top-level { and match its closing }.
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(text)):
+            c = text[i]
+            if escape:
+                escape = False
+                continue
+            if c == "\\":
+                escape = True
+                continue
+            if c == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start:i + 1]
+                    try:
+                        result = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        break
+                    if isinstance(result, dict):
+                        return result
+                    break
+        start = text.find("{", start + 1)
+    return None
 
 
 def _usage_from_envelope(envelope: dict) -> UsageTotals:

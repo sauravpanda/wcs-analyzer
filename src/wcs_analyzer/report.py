@@ -364,6 +364,8 @@ def save_report_json(scores: FinalScores, path: Path) -> None:
         "total_off_beat": scores.total_off_beat,
         "patterns": scores.all_patterns,
         "pattern_details": scores.pattern_details,
+        "pattern_counts": scores.pattern_counts,
+        "pattern_timeline": scores.pattern_timeline,
         "strengths": scores.top_strengths,
         "improvements": scores.top_improvements,
         "overall_impression": scores.overall_impression,

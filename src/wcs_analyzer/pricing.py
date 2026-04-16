@@ -155,8 +155,18 @@ class UsageTotals:
         """Return a new UsageTotals summing self and other.
 
         If the models differ (ensemble mode), keeps the current model
-        name and marks pricing_known only if both sides were known.
+        name and marks pricing_known only if both sides contributed
+        token spend AND were both known. An empty `other` (zero
+        tokens) is treated as a no-op so its default
+        `pricing_known=False` doesn't taint a known result — this
+        matters when a failed pattern pre-pass returns an empty
+        UsageTotals but the main analysis call still succeeded with
+        a known model.
         """
+        if other.input_tokens == 0 and other.output_tokens == 0:
+            return self
+        if self.input_tokens == 0 and self.output_tokens == 0:
+            return other
         return UsageTotals(
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,

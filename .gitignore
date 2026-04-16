@@ -40,3 +40,10 @@ Thumbs.db
 # Analysis outputs
 *_report.json
 *_report.csv
+
+# Local analysis reports (don't commit into repo)
+report_*.json
+report_*.csv
+*_report.json
+*_report.csv
+*_ensemble.json
