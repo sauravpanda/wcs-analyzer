@@ -61,8 +61,12 @@ _DEFAULT_MODELS = {
 @click.option("--pose", "use_pose", is_flag=True, default=False, help="Extract MediaPipe pose metrics and feed them as context to the LLM (Gemini only). Requires `pip install 'wcs-analyzer[pose]'`.")
 @click.option("--providers", "providers_list", default=None, help="Comma-separated list of providers for ensemble mode (e.g. 'gemini,claude-code'). Each runs independently and results are aggregated with disagreement flagging.")
 @click.option("--save-history", "save_history", default=None, help="Persist this run's scores to the longitudinal history DB under the given dancer name. Use `wcs-analyzer progress <name>` to review.")
+@click.option("--competition", default=None, help="Competition name (e.g. 'Summer Heatwave 2026').")
+@click.option("--comp-date", default=None, help="Competition date (e.g. '2026-07-15').")
+@click.option("--comp-mode", type=click.Choice(["j&j", "strictly", "classic", "showcase", "routine"], case_sensitive=False), default=None, help="Competition mode.")
+@click.option("--comp-stage", type=click.Choice(["social", "prelims", "semis", "finals"], case_sensitive=False), default=None, help="Competition stage.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging output.")
-def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, detail: str, output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int, use_pose: bool, providers_list: str | None, save_history: str | None, verbose: bool):
+def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, detail: str, output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int, use_pose: bool, providers_list: str | None, save_history: str | None, competition: str | None, comp_date: str | None, comp_mode: str | None, comp_stage: str | None, verbose: bool):
     """Analyze one or more West Coast Swing dance videos.
 
     Pass multiple video files to analyze them all. Use -j to run in parallel.
@@ -98,16 +102,24 @@ def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, det
         )
         use_pose = False
 
+    comp_info = {
+        "competition": competition or "",
+        "comp_date": comp_date or "",
+        "comp_mode": comp_mode or "",
+        "comp_stage": comp_stage or "",
+    }
+
     if len(video_paths) == 1:
-        _analyze_single(video_paths[0], provider, model, detail, output, fps, dancers, no_cache, fmt, use_pose, save_history)
+        _analyze_single(video_paths[0], provider, model, detail, output, fps, dancers, no_cache, fmt, use_pose, save_history, comp_info)
     else:
-        _analyze_batch(video_paths, provider, model, detail, fps, dancers, no_cache, fmt, parallel, use_pose, save_history)
+        _analyze_batch(video_paths, provider, model, detail, fps, dancers, no_cache, fmt, parallel, use_pose, save_history, comp_info)
 
 
 def _analyze_single(
     video_path: Path, provider: str, model: str, detail: str,
     output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str,
     use_pose: bool = False, save_history: str | None = None,
+    comp_info: dict | None = None,
 ) -> None:
     """Analyze a single video with full reporting."""
     from .scoring import compute_final_scores
@@ -142,6 +154,15 @@ def _analyze_single(
             save_to_cache(video_path, fps, detail, cache_key_model, segments_to_dicts(segments))
 
         scores = compute_final_scores(segments)
+
+        # Stamp video + competition metadata
+        from .video import get_video_recorded_at
+        scores.video_recorded_at = get_video_recorded_at(video_path)
+        if comp_info:
+            scores.competition = comp_info.get("competition", "")
+            scores.comp_date = comp_info.get("comp_date", "")
+            scores.comp_mode = comp_info.get("comp_mode", "")
+            scores.comp_stage = comp_info.get("comp_stage", "")
 
         if save_history:
             from .history import save_run
@@ -239,6 +260,7 @@ def _analyze_batch(
     video_paths: tuple[Path, ...], provider: str, model: str, detail: str,
     fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int,
     use_pose: bool = False, save_history: str | None = None,
+    comp_info: dict | None = None,
 ) -> None:
     """Analyze multiple videos, optionally in parallel."""
     from concurrent.futures import ThreadPoolExecutor, as_completed

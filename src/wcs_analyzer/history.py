@@ -43,6 +43,11 @@ class HistoryRow:
     teamwork: float
     presentation: float
     estimated_cost: float = 0.0
+    video_recorded_at: str = ""
+    competition: str = ""
+    comp_date: str = ""
+    comp_mode: str = ""
+    comp_stage: str = ""
 
 
 SCHEMA = """
@@ -58,7 +63,12 @@ CREATE TABLE IF NOT EXISTS runs (
     technique   REAL NOT NULL,
     teamwork    REAL NOT NULL,
     presentation REAL NOT NULL,
-    estimated_cost REAL NOT NULL DEFAULT 0
+    estimated_cost REAL NOT NULL DEFAULT 0,
+    video_recorded_at TEXT NOT NULL DEFAULT '',
+    competition TEXT NOT NULL DEFAULT '',
+    comp_date TEXT NOT NULL DEFAULT '',
+    comp_mode TEXT NOT NULL DEFAULT '',
+    comp_stage TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_runs_dancer_created
     ON runs(dancer, created_at);
@@ -68,8 +78,20 @@ CREATE INDEX IF NOT EXISTS idx_runs_dancer_created
 def _migrate(conn: sqlite3.Connection) -> None:
     """Apply lazy schema migrations to an existing database."""
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
-    if "estimated_cost" not in cols:
-        conn.execute("ALTER TABLE runs ADD COLUMN estimated_cost REAL NOT NULL DEFAULT 0")
+    migrations = [
+        ("estimated_cost", "ALTER TABLE runs ADD COLUMN estimated_cost REAL NOT NULL DEFAULT 0"),
+        ("video_recorded_at", "ALTER TABLE runs ADD COLUMN video_recorded_at TEXT NOT NULL DEFAULT ''"),
+        ("competition", "ALTER TABLE runs ADD COLUMN competition TEXT NOT NULL DEFAULT ''"),
+        ("comp_date", "ALTER TABLE runs ADD COLUMN comp_date TEXT NOT NULL DEFAULT ''"),
+        ("comp_mode", "ALTER TABLE runs ADD COLUMN comp_mode TEXT NOT NULL DEFAULT ''"),
+        ("comp_stage", "ALTER TABLE runs ADD COLUMN comp_stage TEXT NOT NULL DEFAULT ''"),
+    ]
+    applied = False
+    for col, sql in migrations:
+        if col not in cols:
+            conn.execute(sql)
+            applied = True
+    if applied:
         conn.commit()
 
 
@@ -96,14 +118,20 @@ def save_run(
         conn.execute(
             "INSERT INTO runs (dancer, video_name, created_at, provider, "
             "overall, grade, timing, technique, teamwork, presentation, "
-            "estimated_cost) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "estimated_cost, video_recorded_at, competition, comp_date, "
+            "comp_mode, comp_stage) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 dancer, video_name, now, provider,
                 scores.overall, scores.grade,
                 scores.timing, scores.technique,
                 scores.teamwork, scores.presentation,
                 scores.usage.estimated_cost,
+                scores.video_recorded_at,
+                scores.competition,
+                scores.comp_date,
+                scores.comp_mode,
+                scores.comp_stage,
             ),
         )
         conn.commit()
@@ -117,7 +145,8 @@ def load_history(dancer: str, db_path: Path | None = None) -> list[HistoryRow]:
     with _connect(db) as conn:
         rows = conn.execute(
             "SELECT dancer, video_name, created_at, provider, overall, grade, "
-            "timing, technique, teamwork, presentation, estimated_cost "
+            "timing, technique, teamwork, presentation, estimated_cost, "
+            "video_recorded_at, competition, comp_date, comp_mode, comp_stage "
             "FROM runs WHERE dancer = ? ORDER BY created_at ASC",
             (dancer,),
         ).fetchall()
