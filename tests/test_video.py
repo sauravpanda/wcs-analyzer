@@ -31,3 +31,26 @@ def test_group_frames_empty():
     frames = FrameData(duration=0.0)
     phrases = group_frames_by_phrase(frames, beats_per_phrase=8, bpm=120.0)
     assert phrases == []
+
+
+def test_get_video_duration_returns_seconds():
+    """get_video_duration should return a positive float for a real video."""
+    from wcs_analyzer.video import get_video_duration
+    from pathlib import Path
+    # Use IMG_8665.MOV if present in the repo, otherwise skip
+    sample = Path("IMG_8665.MOV")
+    if not sample.exists():
+        import pytest
+        pytest.skip("No sample video present")
+    duration = get_video_duration(sample)
+    assert duration > 0
+
+
+def test_get_video_duration_raises_on_missing_file():
+    """Nonexistent file should raise VideoProcessingError."""
+    from pathlib import Path
+    import pytest
+    from wcs_analyzer.exceptions import VideoProcessingError
+    from wcs_analyzer.video import get_video_duration
+    with pytest.raises(VideoProcessingError):
+        get_video_duration(Path("/nonexistent/nope.mp4"))

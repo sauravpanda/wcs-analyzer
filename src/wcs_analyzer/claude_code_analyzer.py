@@ -121,9 +121,10 @@ def analyze_dance_claude_code(
     """
     claude_path = _check_claude_cli()
 
-    # FPS per detail level — controls how many frames get analyzed
-    detail_fps = {"low": 0.5, "medium": 1.0, "high": 2.0}
-    analysis_fps = detail_fps.get(detail, 1.0)
+    # FPS per detail level — controls how many frames get analyzed.
+    # Higher rates cost more but catch fast WCS footwork; HD pulls 4fps.
+    detail_fps = {"low": 1.0, "medium": 2.0, "high": 4.0}
+    analysis_fps = detail_fps.get(detail, 2.0)
 
     # Extract frames at the analysis FPS directly
     logger.info("Extracting frames at %.1f fps for Claude Code analysis...", analysis_fps)
@@ -266,5 +267,7 @@ def _usage_from_envelope(envelope: dict) -> UsageTotals:
 
 
 def _parse_response(data: dict, duration: float, usage: UsageTotals | None = None) -> SegmentAnalysis:
-    """Convert parsed JSON dict into a SegmentAnalysis."""
-    return parse_segment_data(data, start_time=0.0, end_time=duration, usage=usage)
+    """Convert parsed JSON dict into a SegmentAnalysis (whole-video summary)."""
+    seg = parse_segment_data(data, start_time=0.0, end_time=duration, usage=usage)
+    seg.is_summary = True
+    return seg

@@ -349,6 +349,19 @@ def _analyze_with_gemini(
 ) -> list:
     """Run analysis via Gemini's native video understanding."""
     from .gemini_analyzer import analyze_dance_gemini
+    from .video import get_video_duration
+
+    duration = get_video_duration(video_path)
+    if duration < MIN_VIDEO_DURATION:
+        console.print(
+            f"  [yellow]Warning: Video is very short ({duration:.0f}s). "
+            f"Results may be limited.[/yellow]"
+        )
+    elif duration > MAX_VIDEO_DURATION:
+        console.print(
+            f"  [yellow]Warning: Video is long ({duration:.0f}s). "
+            f"Consider trimming to the key section.[/yellow]"
+        )
 
     with console.status("Uploading video to Gemini..."):
         segments = analyze_dance_gemini(

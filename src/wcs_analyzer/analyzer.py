@@ -517,12 +517,14 @@ def _get_summary(
         segment_results=combined,
     )
 
-    return _call_and_parse(
+    seg = _call_and_parse(
         client, model,
         [{"type": "text", "text": prompt}],
         start_time=0.0,
         end_time=audio.duration,
     )
+    seg.is_summary = True
+    return seg
 
 
 def _extract_pattern_names(patterns: list) -> list[str]:
@@ -537,11 +539,16 @@ def _extract_pattern_names(patterns: list) -> list[str]:
 
 
 def _extract_pattern_details(patterns: list) -> list[dict]:
-    """Extract rich pattern details, normalizing strings to dicts."""
+    """Extract rich pattern details, normalizing strings to dicts.
+
+    String patterns carry no quality/timing data, so those fields are
+    left absent rather than set to misleading "solid"/"on_beat"
+    defaults — the report then renders "?" for them, which is honest.
+    """
     details = []
     for p in patterns:
         if isinstance(p, dict) and "name" in p:
             details.append(p)
         elif isinstance(p, str):
-            details.append({"name": p, "quality": "solid", "timing": "on_beat", "notes": ""})
+            details.append({"name": p, "notes": ""})
     return details

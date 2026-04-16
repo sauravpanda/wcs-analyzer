@@ -338,3 +338,60 @@ def test_final_scores_includes_summary_usage():
     scores = compute_final_scores([seg1, summary])
     assert scores.usage.input_tokens == 1500
     assert scores.usage.output_tokens == 750
+
+
+# ---- Ported features from Updates branch ---------------------------------
+
+
+def test_pattern_counts_tallied_across_segments():
+    seg1 = SegmentAnalysis(
+        start_time=0.0, end_time=4.0,
+        patterns=["Sugar Push", "Whip", "Sugar Push"],
+    )
+    seg2 = SegmentAnalysis(
+        start_time=4.0, end_time=8.0,
+        patterns=["sugar push", "Left Side Pass"],
+    )
+    scores = compute_final_scores([seg1, seg2])
+    # Case-insensitive count, but display name is the first one we saw
+    assert scores.pattern_counts["Sugar Push"] == 3
+    assert scores.pattern_counts["Whip"] == 1
+    assert scores.pattern_counts["Left Side Pass"] == 1
+
+
+def test_pattern_timeline_records_time_windows():
+    seg1 = SegmentAnalysis(
+        start_time=0.0, end_time=4.0,
+        patterns=["Sugar Push"],
+    )
+    seg2 = SegmentAnalysis(
+        start_time=4.0, end_time=8.0,
+        patterns=["Whip", "Left Side Pass"],
+    )
+    seg3 = SegmentAnalysis(start_time=8.0, end_time=12.0)  # No patterns
+    scores = compute_final_scores([seg1, seg2, seg3])
+    assert len(scores.pattern_timeline) == 2
+    assert scores.pattern_timeline[0]["start_time"] == 0.0
+    assert scores.pattern_timeline[0]["patterns"] == ["Sugar Push"]
+    assert scores.pattern_timeline[1]["patterns"] == ["Whip", "Left Side Pass"]
+
+
+def test_is_summary_flag_preferred_over_start_time_heuristic():
+    """A first segment starting at 0.0 must not be treated as a summary."""
+    seg1 = SegmentAnalysis(
+        start_time=0.0, end_time=4.0,
+        timing_score=6.0, technique_score=6.0, teamwork_score=6.0, presentation_score=6.0,
+    )
+    seg2 = SegmentAnalysis(
+        start_time=4.0, end_time=8.0,
+        timing_score=8.0, technique_score=8.0, teamwork_score=8.0, presentation_score=8.0,
+    )
+    summary = SegmentAnalysis(
+        start_time=99.0, end_time=108.0,  # Doesn't start at 0
+        is_summary=True,
+        timing_score=9.0, technique_score=9.0, teamwork_score=9.0, presentation_score=9.0,
+        raw_data={"overall_impression": "ok"},
+    )
+    scores = compute_final_scores([seg1, seg2, summary])
+    # Scores should come from the is_summary segment even though start_time != 0
+    assert scores.timing == 9.0

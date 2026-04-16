@@ -78,6 +78,9 @@ def analyze_dance_gemini(
         resolution=resolution,
     )
     parsed = _parse_response(result, usage)
+    # A Gemini run produces a single whole-video result — treat it as
+    # a summary so compute_final_scores uses it directly.
+    parsed.is_summary = True
     return [parsed]
 
 
