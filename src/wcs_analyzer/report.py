@@ -6,8 +6,6 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
 
 from .history import HistoryRow, Trajectory
 from .pricing import pricing_updated_on
@@ -49,119 +47,92 @@ def _format_time(seconds: float) -> str:
     return f"{m}:{s:02d}"
 
 
+def _score_line(label: str, score: float, weight: str = "", lo: float = 0.0, hi: float = 0.0, notes: str = "") -> str:
+    """Format a single score line with bar, optional CI, weight, and notes."""
+    c = _score_color(score)
+    parts = [f"    [bold]{label:<20}[/bold]", f"[{c}]{score:>4.1f}[/{c}]", f"[{c}]{_score_bar(score)}[/{c}]"]
+    ci = _ci_str(lo, hi)
+    if ci:
+        parts.append(f"[dim]{ci}[/dim]")
+    if weight:
+        parts.append(f"[dim]{weight}[/dim]")
+    line = "  ".join(parts)
+    if notes:
+        line += f"\n{'':>30}[dim]{notes}[/dim]"
+    return line
+
+
 def print_report(scores: FinalScores, video_name: str) -> None:
-    """Print the full analysis report to the terminal."""
+    """Print the full analysis report to the terminal.
+
+    Uses plain Rich-formatted text instead of ASCII tables so content
+    never gets swallowed by column-width miscalculations. Every line
+    prints left-to-right and wraps naturally.
+    """
     console.print()
-
-    # Header
-    header = Table.grid(padding=1)
-    header.add_column(justify="center")
-    header.add_row(
-        Text("WCS Dance Analysis Report", style="bold white"),
-    )
-    header.add_row(Text(video_name, style="dim"))
-
-    console.print(Panel(header, style="blue", padding=(1, 2)))
+    console.print(Panel(
+        f"[bold white]WCS Dance Analysis Report[/bold white]\n[dim]{video_name}[/dim]",
+        style="blue", padding=(1, 2),
+    ))
 
     # Overall score
     color = _score_color(scores.overall)
-    overall_text = Text()
-    overall_text.append("  Overall Score: ", style="bold")
-    overall_text.append(f"{scores.overall} / 10", style=f"bold {color}")
     ci = _ci_str(scores.overall_low, scores.overall_high)
-    if ci:
-        overall_text.append(f"  {ci}", style=f"dim {color}")
-    overall_text.append(f"  ({scores.grade})", style=f"bold {color}")
-    if scores.low_confidence:
-        overall_text.append("  \u26a0 low confidence", style="bold yellow")
-    console.print(Panel(overall_text, style=color))
+    ci_part = f"  [dim]{ci}[/dim]" if ci else ""
+    warn = "  [bold yellow]\u26a0 low confidence[/bold yellow]" if scores.low_confidence else ""
+    console.print(Panel(
+        f"  [bold]Overall Score:[/bold] [{color}]{scores.overall} / 10[/{color}]"
+        f"{ci_part}  [{color}]({scores.grade})[/{color}]{warn}",
+        style=color,
+    ))
 
-    # Category scores table
-    table = Table(title="Category Scores", show_header=True, header_style="bold cyan")
-    table.add_column("Category", style="bold", width=20)
-    table.add_column("Score", justify="center", width=10)
-    table.add_column("", width=12)
-    table.add_column("Range", justify="center", width=12)
-    table.add_column("Weight", justify="center", width=8)
-
-    categories = [
+    # Category scores
+    console.print("\n  [bold cyan]Category Scores[/bold cyan]")
+    for name, score, lo, hi, weight in [
         ("Timing & Rhythm", scores.timing, scores.timing_low, scores.timing_high, "30%"),
         ("Technique", scores.technique, scores.technique_low, scores.technique_high, "30%"),
         ("Teamwork", scores.teamwork, scores.teamwork_low, scores.teamwork_high, "20%"),
         ("Presentation", scores.presentation, scores.presentation_low, scores.presentation_high, "20%"),
-    ]
-
-    for name, score, lo, hi, weight in categories:
-        color = _score_color(score)
-        table.add_row(
-            name,
-            f"[{color}]{score}[/{color}]",
-            f"[{color}]{_score_bar(score)}[/{color}]",
-            f"[dim]{_ci_str(lo, hi)}[/dim]",
-            weight,
-        )
-
-    console.print(table)
+    ]:
+        console.print(_score_line(name, score, weight, lo, hi))
     console.print()
 
-    # Technique sub-scores with notes
-    tech_table = Table(title="Technique Breakdown", show_header=True, header_style="bold cyan")
-    tech_table.add_column("Area", style="bold", width=12)
-    tech_table.add_column("Score", justify="center", width=8)
-    tech_table.add_column("", width=12)
-    tech_table.add_column("Notes", width=50)
-
-    # Extract technique notes from raw data (summary or first segment)
-    tech_raw = {}
+    # Technique breakdown
+    tech_raw: dict = {}
     for seg in scores.segments:
         if seg.raw_data and "technique" in seg.raw_data:
             tech_raw = seg.raw_data["technique"]
             break
-
-    sub_scores = [
-        ("Posture", scores.posture, tech_raw.get("posture", {}).get("notes", "")),
-        ("Extension", scores.extension, tech_raw.get("extension", {}).get("notes", "")),
-        ("Footwork", scores.footwork, tech_raw.get("footwork", {}).get("notes", "")),
-        ("Slot", scores.slot, tech_raw.get("slot", {}).get("notes", "")),
-    ]
-
-    for name, score, notes in sub_scores:
-        color = _score_color(score)
-        tech_table.add_row(
-            name,
-            f"[{color}]{score}[/{color}]",
-            f"[{color}]{_score_bar(score)}[/{color}]",
-            f"[dim]{notes}[/dim]" if notes else "",
-        )
-
-    console.print(tech_table)
+    console.print("  [bold cyan]Technique Breakdown[/bold cyan]")
+    for area, score, note_key in [
+        ("Posture", scores.posture, "posture"),
+        ("Extension", scores.extension, "extension"),
+        ("Footwork", scores.footwork, "footwork"),
+        ("Slot", scores.slot, "slot"),
+    ]:
+        notes = tech_raw.get(note_key, {}).get("notes", "") if isinstance(tech_raw.get(note_key), dict) else ""
+        console.print(_score_line(area, score, notes=notes))
     console.print()
 
-    # Partner breakdown (only if data was detected)
+    # Partner breakdown
     if scores.lead_technique > 0 or scores.follow_technique > 0:
-        partner_table = Table(title="Partner Breakdown", show_header=True, header_style="bold cyan")
-        partner_table.add_column("", style="bold", width=16)
-        partner_table.add_column("Lead", justify="center", width=12)
-        partner_table.add_column("Follow", justify="center", width=12)
-
-        for label, lead_s, follow_s in [
-            ("Technique", scores.lead_technique, scores.follow_technique),
-            ("Presentation", scores.lead_presentation, scores.follow_presentation),
-        ]:
-            lc = _score_color(lead_s)
-            fc = _score_color(follow_s)
-            partner_table.add_row(
-                label,
-                f"[{lc}]{lead_s}[/{lc}]",
-                f"[{fc}]{follow_s}[/{fc}]",
-            )
-
-        console.print(partner_table)
-
+        console.print("  [bold cyan]Partner Breakdown[/bold cyan]")
+        lc = _score_color(scores.lead_technique)
+        fc = _score_color(scores.follow_technique)
+        lpc = _score_color(scores.lead_presentation)
+        fpc = _score_color(scores.follow_presentation)
+        console.print(
+            f"    [bold]Lead[/bold]   — Technique: [{lc}]{scores.lead_technique}[/{lc}]"
+            f"  Presentation: [{lpc}]{scores.lead_presentation}[/{lpc}]"
+        )
+        console.print(
+            f"    [bold]Follow[/bold] — Technique: [{fc}]{scores.follow_technique}[/{fc}]"
+            f"  Presentation: [{fpc}]{scores.follow_presentation}[/{fpc}]"
+        )
         if scores.lead_notes:
-            console.print(f"\n  [bold]Lead notes:[/bold] {scores.lead_notes}")
+            console.print(f"    [dim]Lead:[/dim] {scores.lead_notes}")
         if scores.follow_notes:
-            console.print(f"  [bold]Follow notes:[/bold] {scores.follow_notes}")
+            console.print(f"    [dim]Follow:[/dim] {scores.follow_notes}")
         console.print()
 
     # Off-beat moments
@@ -180,82 +151,66 @@ def print_report(scores: FinalScores, video_name: str) -> None:
     else:
         console.print("  [bold]Off-beat moments:[/bold] [green]None detected[/green]\n")
 
-    # Patterns — detailed table if available, otherwise simple list
+    # Patterns
+    quality_colors = {"strong": "green", "solid": "yellow", "needs_work": "dark_orange", "weak": "red"}
+    timing_colors = {"on_beat": "green", "slightly_off": "yellow", "off_beat": "red"}
     if scores.pattern_details:
-        pat_table = Table(title="Pattern Analysis", show_header=True, header_style="bold cyan")
-        pat_table.add_column("Pattern", style="bold", width=22)
-        pat_table.add_column("Seen", justify="center", width=6)
-        pat_table.add_column("Quality", justify="center", width=12)
-        pat_table.add_column("Timing", justify="center", width=12)
-        pat_table.add_column("Notes", width=36)
-
-        quality_colors = {"strong": "green", "solid": "yellow", "needs_work": "dark_orange", "weak": "red"}
-        timing_colors = {"on_beat": "green", "slightly_off": "yellow", "off_beat": "red"}
-
+        n_unique = len(scores.pattern_details)
+        n_total = sum(scores.pattern_counts.values()) if scores.pattern_counts else n_unique
+        console.print(f"  [bold cyan]Patterns[/bold cyan] ({n_unique} unique, {n_total} total)")
         for pd in scores.pattern_details:
+            name = pd.get("name", "?")
             q = pd.get("quality")
             t = pd.get("timing")
             qc = quality_colors.get(q or "", "dim")
             tc = timing_colors.get(t or "", "dim")
             q_str = q.replace("_", " ") if q else "?"
             t_str = t.replace("_", " ") if t else "?"
-            name = pd.get("name", "?")
             count = scores.pattern_counts.get(name, 1)
-            count_str = f"[cyan]{count}×[/cyan]" if count > 1 else f"[dim]{count}×[/dim]"
-            pat_table.add_row(
-                name,
-                count_str,
-                f"[{qc}]{q_str}[/{qc}]",
-                f"[{tc}]{t_str}[/{tc}]",
-                pd.get("notes", ""),
+            count_str = f"[cyan]{count}\u00d7[/cyan]" if count > 1 else "[dim]1\u00d7[/dim]"
+            notes = pd.get("notes", "")
+            console.print(
+                f"    [bold]{name:<28}[/bold] {count_str}  [{qc}]{q_str:<11}[/{qc}]"
+                f"  [{tc}]{t_str:<13}[/{tc}]"
             )
-
-        console.print(pat_table)
+            if notes:
+                console.print(f"{'':>6}[dim]{notes}[/dim]")
         console.print()
     elif scores.all_patterns:
-        console.print(f"  [bold]Patterns identified:[/bold] {', '.join(scores.all_patterns)}")
-        console.print()
+        console.print(f"  [bold]Patterns:[/bold] {', '.join(scores.all_patterns)}\n")
 
-    # Pattern timeline — shown only when at least two time windows had
-    # patterns, otherwise it's redundant with the pattern analysis table.
+    # Pattern timeline
     if len(scores.pattern_timeline) >= 2:
-        tl_table = Table(title="Pattern Timeline", show_header=True, header_style="bold cyan")
-        tl_table.add_column("Time", justify="center", width=14)
-        tl_table.add_column("Patterns", width=60)
-
+        console.print("  [bold cyan]Pattern Timeline[/bold cyan]")
         for entry in scores.pattern_timeline:
             start = _format_time(entry["start_time"])
             end = _format_time(entry["end_time"])
             names = entry.get("patterns", [])
-            tl_table.add_row(f"{start} \u2192 {end}", "  \u00b7  ".join(names) if names else "\u2014")
-
-        console.print(tl_table)
+            pat_str = ", ".join(names) if names else "\u2014"
+            console.print(f"    [dim]{start} \u2192 {end}[/dim]  {pat_str}")
         console.print()
 
     # Strengths
     if scores.top_strengths:
-        console.print("  [bold green]Strengths:[/bold green]")
+        console.print("  [bold green]Strengths[/bold green]")
         for s in scores.top_strengths:
             console.print(f"    [green]\u2022[/green] {s}")
         console.print()
 
     # Improvements
     if scores.top_improvements:
-        console.print("  [bold yellow]Areas to Improve:[/bold yellow]")
+        console.print("  [bold yellow]Areas to Improve[/bold yellow]")
         for s in scores.top_improvements:
             console.print(f"    [yellow]\u2022[/yellow] {s}")
         console.print()
 
-    # Per-category reasoning (chain-of-thought) if present
+    # Reasoning
     if scores.reasoning:
-        reason_table = Table(title="Judge's Reasoning", show_header=True, header_style="bold cyan")
-        reason_table.add_column("Category", style="bold", width=14)
-        reason_table.add_column("Reasoning", width=70)
+        console.print("  [bold cyan]Judge's Reasoning[/bold cyan]")
         for cat in ("timing", "technique", "teamwork", "presentation"):
             text = scores.reasoning.get(cat)
             if text:
-                reason_table.add_row(cat.title(), f"[dim]{text}[/dim]")
-        console.print(reason_table)
+                console.print(f"    [bold]{cat.title():<14}[/bold] [dim]{text}[/dim]")
         console.print()
 
     # Overall impression
@@ -429,11 +384,10 @@ def print_progress_report(
 ) -> None:
     """Render a longitudinal trajectory view for one dancer."""
     console.print()
-    header = Table.grid(padding=1)
-    header.add_column(justify="center")
-    header.add_row(Text(f"Progress for {dancer}", style="bold white"))
-    header.add_row(Text(f"{len(rows)} runs tracked", style="dim"))
-    console.print(Panel(header, style="blue", padding=(1, 2)))
+    console.print(Panel(
+        f"[bold white]Progress for {dancer}[/bold white]\n[dim]{len(rows)} runs tracked[/dim]",
+        style="blue", padding=(1, 2),
+    ))
 
     if not rows:
         console.print("  [yellow]No history for this dancer yet. "
@@ -441,16 +395,7 @@ def print_progress_report(
         return
 
     # Timeline of runs
-    timeline = Table(title="Run Timeline", show_header=True, header_style="bold cyan")
-    timeline.add_column("#", justify="right", width=4)
-    timeline.add_column("Date", style="dim", width=20)
-    timeline.add_column("Video", width=22)
-    timeline.add_column("Provider", width=12)
-    timeline.add_column("Overall", justify="center", width=9)
-    timeline.add_column("Grade", justify="center", width=6)
-    timeline.add_column("Trend", justify="center", width=8)
-    timeline.add_column("Cost", justify="right", width=10)
-
+    console.print("\n  [bold cyan]Run Timeline[/bold cyan]")
     prev = None
     for i, row in enumerate(rows, 1):
         color = _score_color(row.overall)
@@ -458,42 +403,30 @@ def print_progress_report(
         if prev is not None:
             delta = row.overall - prev
             if delta > 0.3:
-                trend_str = f"[green]+{delta:.1f}\u2191[/green]"
+                trend_str = f" [green]+{delta:.1f}\u2191[/green]"
             elif delta < -0.3:
-                trend_str = f"[red]{delta:.1f}\u2193[/red]"
+                trend_str = f" [red]{delta:.1f}\u2193[/red]"
             else:
-                trend_str = "[dim]\u2192[/dim]"
+                trend_str = " [dim]\u2192[/dim]"
         prev = row.overall
-        cost_str = f"${row.estimated_cost:.4f}" if row.estimated_cost > 0 else "[dim]—[/dim]"
-        timeline.add_row(
-            str(i),
-            row.created_at.replace("T", " ").split("+")[0],
-            row.video_name[:20] + ("…" if len(row.video_name) > 20 else ""),
-            row.provider,
-            f"[{color}]{row.overall:.1f}[/{color}]",
-            f"[{color}]{row.grade}[/{color}]",
-            trend_str,
-            cost_str,
+        cost_str = f"  ${row.estimated_cost:.4f}" if row.estimated_cost > 0 else ""
+        date = row.created_at.replace("T", " ").split("+")[0]
+        vid = row.video_name[:22] + ("\u2026" if len(row.video_name) > 22 else "")
+        console.print(
+            f"    [dim]{i:>2}.[/dim] [{color}]{row.overall:>4.1f} ({row.grade})[/{color}]"
+            f"{trend_str}  [dim]{date}[/dim]  {vid}  [dim]{row.provider}{cost_str}[/dim]"
         )
-    console.print(timeline)
 
     total_spend = sum(r.estimated_cost for r in rows)
     if total_spend > 0:
         console.print(
-            f"  [bold]Total spent on {dancer}:[/bold] "
+            f"\n  [bold]Total spent on {dancer}:[/bold] "
             f"[yellow]~${total_spend:.4f}[/yellow] across {len(rows)} runs"
         )
     console.print()
 
     # Trajectory fits
-    traj_table = Table(title="Linear Trajectories", show_header=True, header_style="bold cyan")
-    traj_table.add_column("Category", style="bold", width=14)
-    traj_table.add_column("First", justify="center", width=8)
-    traj_table.add_column("Latest", justify="center", width=8)
-    traj_table.add_column("Total \u0394", justify="center", width=10)
-    traj_table.add_column("Per-run \u0394", justify="center", width=11)
-    traj_table.add_column("Direction", width=14)
-
+    console.print("  [bold cyan]Linear Trajectories[/bold cyan]")
     for cat in ("overall", "timing", "technique", "teamwork", "presentation"):
         t = trajectories[cat]
         total_delta = t.latest - t.first
@@ -505,89 +438,70 @@ def print_progress_report(
             direction = "[red]regressing[/red]"
         else:
             direction = "[yellow]flat[/yellow]"
-        total_color = "green" if total_delta > 0.3 else "red" if total_delta < -0.3 else "dim"
-        traj_table.add_row(
-            cat.title(),
-            f"{t.first:.1f}",
-            f"{t.latest:.1f}",
-            f"[{total_color}]{total_delta:+.1f}[/{total_color}]",
-            f"{t.slope_per_run:+.2f}",
-            direction,
+        tc = "green" if total_delta > 0.3 else "red" if total_delta < -0.3 else "dim"
+        console.print(
+            f"    [bold]{cat.title():<14}[/bold] {t.first:.1f} \u2192 {t.latest:.1f}"
+            f"  [{tc}]{total_delta:+.1f}[/{tc}]  ({t.slope_per_run:+.2f}/run)  {direction}"
         )
-    console.print(traj_table)
     console.print()
 
 
 def print_ensemble_report(ensemble: EnsembleScores, video_name: str) -> None:
-    """Render a side-by-side multi-provider ensemble report."""
+    """Render a multi-provider ensemble report using plain text."""
     console.print()
-    header = Table.grid(padding=1)
-    header.add_column(justify="center")
-    header.add_row(Text("WCS Ensemble Analysis Report", style="bold white"))
-    header.add_row(Text(f"{video_name} — {', '.join(ensemble.providers)}", style="dim"))
-    console.print(Panel(header, style="blue", padding=(1, 2)))
+    console.print(Panel(
+        f"[bold white]WCS Ensemble Analysis Report[/bold white]\n"
+        f"[dim]{video_name} \u2014 {', '.join(ensemble.providers)}[/dim]",
+        style="blue", padding=(1, 2),
+    ))
 
     # Consensus overall
     color = _score_color(ensemble.overall)
-    overall_text = Text()
-    overall_text.append("  Consensus Score: ", style="bold")
-    overall_text.append(f"{ensemble.overall} / 10", style=f"bold {color}")
-    overall_text.append(f"  ({ensemble.grade})", style=f"bold {color}")
-    if ensemble.contested:
-        overall_text.append(
-            f"  \u26a0 contested: {', '.join(ensemble.contested)}",
-            style="bold yellow",
-        )
-    console.print(Panel(overall_text, style=color))
+    warn = (
+        f"  [bold yellow]\u26a0 contested: {', '.join(ensemble.contested)}[/bold yellow]"
+        if ensemble.contested else ""
+    )
+    console.print(Panel(
+        f"  [bold]Consensus Score:[/bold] [{color}]{ensemble.overall} / 10  "
+        f"({ensemble.grade})[/{color}]{warn}",
+        style=color,
+    ))
 
     # Per-category comparison
-    table = Table(title="Category Scores by Provider", show_header=True, header_style="bold cyan")
-    table.add_column("Category", style="bold", width=18)
-    for p in ensemble.providers:
-        table.add_column(p, justify="center", width=12)
-    table.add_column("Consensus", justify="center", width=12)
-    table.add_column("StdDev", justify="center", width=10)
-
-    categories = [
+    console.print("\n  [bold cyan]Category Scores by Provider[/bold cyan]")
+    for label, key, consensus in [
         ("Timing & Rhythm", "timing", ensemble.timing),
         ("Technique", "technique", ensemble.technique),
         ("Teamwork", "teamwork", ensemble.teamwork),
         ("Presentation", "presentation", ensemble.presentation),
-    ]
-
-    for label, key, consensus in categories:
-        row = [label]
+    ]:
+        parts = [f"    [bold]{label:<18}[/bold]"]
         for p in ensemble.providers:
             v = getattr(ensemble.per_provider[p], key)
-            row.append(f"[{_score_color(v)}]{v}[/{_score_color(v)}]")
-        row.append(f"[{_score_color(consensus)}]{consensus}[/{_score_color(consensus)}]")
+            c = _score_color(v)
+            parts.append(f"{p}: [{c}]{v}[/{c}]")
+        cc = _score_color(consensus)
+        parts.append(f"\u2192 [{cc}]{consensus}[/{cc}]")
         sd = ensemble.stddev.get(key, 0.0)
         sd_color = "yellow" if key in ensemble.contested else "dim"
-        row.append(f"[{sd_color}]{sd:.2f}[/{sd_color}]")
-        table.add_row(*row)
-
-    console.print(table)
+        parts.append(f"[{sd_color}](\u03c3 {sd:.2f})[/{sd_color}]")
+        console.print("  ".join(parts))
     console.print()
 
-    # Technique sub-scores consensus
-    tech_table = Table(title="Technique Breakdown (consensus)", show_header=True, header_style="bold cyan")
-    tech_table.add_column("Area", style="bold", width=12)
-    tech_table.add_column("Score", justify="center", width=8)
-    tech_table.add_column("", width=12)
+    # Technique consensus
+    console.print("  [bold cyan]Technique Breakdown (consensus)[/bold cyan]")
     for name, score in [
         ("Posture", ensemble.posture),
         ("Extension", ensemble.extension),
         ("Footwork", ensemble.footwork),
         ("Slot", ensemble.slot),
     ]:
-        c = _score_color(score)
-        tech_table.add_row(name, f"[{c}]{score}[/{c}]", f"[{c}]{_score_bar(score)}[/{c}]")
-    console.print(tech_table)
+        console.print(_score_line(name, score))
     console.print()
 
     if ensemble.contested:
         console.print(
-            f"  [bold yellow]\u26a0 Contested categories[/bold yellow] — "
+            f"  [bold yellow]\u26a0 Contested categories[/bold yellow] \u2014 "
             f"stddev > 1.0 means the models disagreed. Review: "
             f"{', '.join(ensemble.contested)}"
         )
@@ -641,60 +555,43 @@ def print_comparison(reports: list[tuple[str, dict]]) -> None:
     """Print a side-by-side comparison of multiple analysis reports."""
     console.print()
     console.print(Panel(
-        Text("WCS Score Comparison", style="bold white", justify="center"),
+        "[bold white]WCS Score Comparison[/bold white]",
         style="blue", padding=(1, 2),
     ))
 
-    # Overall scores table
-    table = Table(title="Overall Scores", show_header=True, header_style="bold cyan")
-    table.add_column("Report", style="bold", width=20)
-    table.add_column("Overall", justify="center", width=10)
-    table.add_column("Grade", justify="center", width=8)
-    table.add_column("Trend", justify="center", width=10)
-
+    # Overall scores
+    console.print("\n  [bold cyan]Overall Scores[/bold cyan]")
     prev_overall = None
     for name, data in reports:
         scores = data.get("scores", {})
         overall = scores.get("overall", 0)
         grade = scores.get("grade", "?")
         color = _score_color(overall)
-        trend_str = _trend(overall, prev_overall) if prev_overall is not None else ""
-        table.add_row(name, f"[{color}]{overall}[/{color}]", f"[{color}]{grade}[/{color}]", trend_str)
+        trend_str = "  " + _trend(overall, prev_overall) if prev_overall is not None else ""
+        console.print(
+            f"    [bold]{name:<22}[/bold] [{color}]{overall:>4.1f} ({grade})[/{color}]{trend_str}"
+        )
         prev_overall = overall
-
-    console.print(table)
     console.print()
 
     # Category breakdown
-    cat_table = Table(title="Category Comparison", show_header=True, header_style="bold cyan")
-    cat_table.add_column("Category", style="bold", width=16)
-    for name, _ in reports:
-        cat_table.add_column(name, justify="center", width=12)
-
+    console.print("  [bold cyan]Category Comparison[/bold cyan]")
     for cat in _COMPARE_CATEGORIES:
-        row = [cat.title()]
-        for _, data in reports:
+        parts = [f"    [bold]{cat.title():<16}[/bold]"]
+        for name, data in reports:
             score = data.get("scores", {}).get(cat, 0)
-            color = _score_color(score)
-            row.append(f"[{color}]{score}[/{color}]")
-        cat_table.add_row(*row)
-
-    console.print(cat_table)
+            c = _score_color(score)
+            parts.append(f"{name}: [{c}]{score}[/{c}]")
+        console.print("  ".join(parts))
     console.print()
 
     # Technique sub-scores
-    tech_table = Table(title="Technique Breakdown", show_header=True, header_style="bold cyan")
-    tech_table.add_column("Area", style="bold", width=16)
-    for name, _ in reports:
-        tech_table.add_column(name, justify="center", width=12)
-
+    console.print("  [bold cyan]Technique Breakdown[/bold cyan]")
     for area in ["posture", "extension", "footwork", "slot"]:
-        row = [area.title()]
-        for _, data in reports:
+        parts = [f"    [bold]{area.title():<16}[/bold]"]
+        for name, data in reports:
             score = data.get("technique_breakdown", {}).get(area, 0)
-            color = _score_color(score)
-            row.append(f"[{color}]{score}[/{color}]")
-        tech_table.add_row(*row)
-
-    console.print(tech_table)
+            c = _score_color(score)
+            parts.append(f"{name}: [{c}]{score}[/{c}]")
+        console.print("  ".join(parts))
     console.print()
