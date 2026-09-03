@@ -149,9 +149,10 @@ class TestCallClaude:
 
     def test_api_status_error_wrapped(self):
         import anthropic as anth
-        import httpx
 
-        resp = httpx.Response(401, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+        # A stand-in for the HTTP response; avoids depending on httpx vs httpx2
+        # (the SDK switched HTTP libraries between 0.x and 1.x).
+        resp = MagicMock(status_code=401, headers={"request-id": "req_test"})
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = anth.AuthenticationError(
             "invalid x-api-key", response=resp, body=None,
@@ -161,23 +162,42 @@ class TestCallClaude:
 
     def test_connection_error_wrapped(self):
         import anthropic as anth
-        import httpx
 
         mock_client = MagicMock()
-        mock_client.messages.create.side_effect = anth.APIConnectionError(
-            request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
-        )
+        mock_client.messages.create.side_effect = anth.APIConnectionError(request=MagicMock())
         with pytest.raises(AnalysisError, match="Could not reach"):
             _call_claude(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "hi"}])
+
+
+class TestTemperaturePassThrough:
+    def test_temperature_sent_via_extra_body(self):
+        """anthropic 1.x has no `temperature` keyword; it must travel in extra_body."""
+        mock_client = MagicMock()
+        mock_block = MagicMock()
+        mock_block.text = "ok"
+        mock_client.messages.create.return_value = MagicMock(content=[mock_block], usage=_mock_usage())
+
+        _call_claude(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "hi"}])
+
+        kwargs = mock_client.messages.create.call_args.kwargs
+        assert "temperature" not in kwargs
+        assert kwargs["extra_body"] == {"temperature": 0.0}
 
 
 class TestMakeClient:
     @patch("wcs_analyzer.analyzer.anthropic.Anthropic")
     def test_missing_credentials_raise_analysis_error(self, mock_cls: MagicMock):
         from wcs_analyzer.analyzer import make_client
-        mock_cls.return_value = MagicMock(api_key=None, auth_token=None)
+        mock_cls.return_value = MagicMock(api_key=None, auth_token=None, credentials=None)
         with pytest.raises(AnalysisError, match="ANTHROPIC_API_KEY"):
             make_client()
+
+    @patch("wcs_analyzer.analyzer.anthropic.Anthropic")
+    def test_sdk1_profile_credentials_accepted(self, mock_cls: MagicMock):
+        """anthropic 1.x may hold an `ant auth login` profile in `credentials`."""
+        from wcs_analyzer.analyzer import make_client
+        mock_cls.return_value = MagicMock(api_key=None, auth_token=None, credentials=object())
+        assert make_client() is mock_cls.return_value
 
     @patch("wcs_analyzer.analyzer.anthropic.Anthropic")
     def test_api_key_present_returns_client(self, mock_cls: MagicMock):

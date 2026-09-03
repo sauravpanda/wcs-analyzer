@@ -350,12 +350,17 @@ def make_client() -> anthropic.Anthropic:
     one-liner instead of a traceback.
     """
     client = anthropic.Anthropic()
-    if not getattr(client, "api_key", None) and not getattr(client, "auth_token", None):
+    # SDK 0.x exposes api_key / auth_token; 1.x adds `credentials` (an
+    # `ant auth login` profile or workload identity). Any one is enough.
+    has_credentials = any(
+        getattr(client, attr, None) for attr in ("api_key", "auth_token", "credentials")
+    )
+    if not has_credentials:
         raise AnalysisError(
-            "ANTHROPIC_API_KEY is not set. Create a key at "
-            "https://console.anthropic.com/ and run "
-            "`export ANTHROPIC_API_KEY=sk-ant-...`, or use --provider gemini "
-            "or --provider claude-code instead."
+            "No Anthropic credentials found: ANTHROPIC_API_KEY is not set. Create a key at "
+            "https://console.anthropic.com/ and run `export ANTHROPIC_API_KEY=sk-ant-...` "
+            "(or sign in with `ant auth login` on anthropic SDK 1.x), or use "
+            "--provider gemini / --provider claude-code instead."
         )
     return client
 
@@ -489,8 +494,13 @@ def _call_claude(
                 model=model,
                 max_tokens=4096,
                 system=SYSTEM_PROMPT,
-                temperature=temperature,
                 messages=[{"role": "user", "content": content}],
+                # anthropic SDK 1.x removed the typed `temperature` keyword
+                # (passing it raises TypeError). The API still accepts it for
+                # the Claude 4.6 models this tool defaults to, and scoring
+                # depends on temperature 0 for reproducibility, so send it via
+                # extra_body, which merges into the request JSON on 0.x and 1.x.
+                extra_body={"temperature": temperature},
             )
             block = response.content[0]
             if not hasattr(block, "text"):
