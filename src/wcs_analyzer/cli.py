@@ -46,6 +46,24 @@ _DEFAULT_MODELS = {
     "claude-code": "claude-sonnet-4-6",
 }
 
+# Longest frame edge (pixels) sent to the frame-based Claude providers.
+# 768 is the token-efficient sweet spot; --hd bumps it to 1080.
+_DEFAULT_MAX_DIMENSION = 768
+_HD_MAX_DIMENSION = 1080
+
+
+def _cache_key_model(provider: str, model: str, dancers: str | None, max_dimension: int) -> str:
+    """Build the provider/model component of the cache key.
+
+    Frame resolution only changes what the frame-based Claude providers
+    see, and the default is left out of the key so caches written before
+    --hd existed keep hitting.
+    """
+    key = f"{provider}:{model}:{dancers or ''}"
+    if provider != "gemini" and max_dimension != _DEFAULT_MAX_DIMENSION:
+        key += f":{max_dimension}px"
+    return key
+
 
 @main.command()
 @click.argument("video_paths", nargs=-1, required=True, type=click.Path(exists=True, path_type=Path))
@@ -53,7 +71,10 @@ _DEFAULT_MODELS = {
 @click.option("--model", default=None, help="Model to use (defaults to provider's best).")
 @click.option("--detail", type=click.Choice(["low", "medium", "high"]), default="medium", help="Analysis detail level.")
 @click.option("--output", "-o", type=click.Path(path_type=Path), default=None, help="Save report as JSON to this path (single video only).")
+@click.option("--save-report", "-r", "save_report", type=click.Path(path_type=Path), default=None, help="Also write the terminal report as plain text to this path (single video only).")
 @click.option("--fps", type=float, default=3.0, callback=_validate_fps, help="Frames per second to sample — Claude only (0-30).")
+@click.option("--hd", is_flag=True, default=False, help="Extract 1080px frames instead of 768px for the Claude providers (more detail, more tokens).")
+@click.option("--max-dimension", "max_dimension", type=int, default=None, help="Longest frame edge in pixels for the Claude providers (default 768; --hd sets 1080).")
 @click.option("--dancers", default=None, help='Describe which dancers to analyze, e.g. "lead in blue shirt, follow in red dress".')
 @click.option("--no-cache", is_flag=True, default=False, help="Skip cache and force re-analysis.")
 @click.option("--format", "fmt", type=click.Choice(["terminal", "json", "csv"]), default="terminal", help="Output format.")
@@ -66,7 +87,7 @@ _DEFAULT_MODELS = {
 @click.option("--comp-mode", type=click.Choice(["j&j", "strictly", "classic", "showcase", "routine"], case_sensitive=False), default=None, help="Competition mode.")
 @click.option("--comp-stage", type=click.Choice(["social", "prelims", "semis", "finals"], case_sensitive=False), default=None, help="Competition stage.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging output.")
-def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, detail: str, output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int, use_pose: bool, providers_list: str | None, save_history: str | None, competition: str | None, comp_date: str | None, comp_mode: str | None, comp_stage: str | None, verbose: bool):
+def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, detail: str, output: Path | None, save_report: Path | None, fps: float, hd: bool, max_dimension: int | None, dancers: str | None, no_cache: bool, fmt: str, parallel: int, use_pose: bool, providers_list: str | None, save_history: str | None, competition: str | None, comp_date: str | None, comp_mode: str | None, comp_stage: str | None, verbose: bool):
     """Analyze one or more West Coast Swing dance videos.
 
     Pass multiple video files to analyze them all. Use -j to run in parallel.
@@ -76,9 +97,21 @@ def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, det
       wcs-analyzer analyze video.mp4
       wcs-analyzer analyze *.MOV -j 3 --provider claude-code
       wcs-analyzer analyze vid1.mp4 vid2.mp4 --format json
+      wcs-analyzer analyze video.mp4 --provider claude-code --hd -r report.txt
     """
     _setup_logging(verbose)
     model = model or _DEFAULT_MODELS[provider]
+
+    if max_dimension is None:
+        max_dimension = _HD_MAX_DIMENSION if hd else _DEFAULT_MAX_DIMENSION
+    if max_dimension <= 0:
+        console.print("[red]--max-dimension must be a positive number of pixels.[/red]")
+        raise SystemExit(1)
+    if provider == "gemini" and not providers_list and max_dimension != _DEFAULT_MAX_DIMENSION:
+        console.print(
+            "  [yellow]--hd / --max-dimension only affect the frame-based Claude providers; "
+            "Gemini receives the original video.[/yellow]"
+        )
 
     if providers_list:
         providers = [p.strip() for p in providers_list.split(",") if p.strip()]
@@ -92,7 +125,7 @@ def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, det
         if len(video_paths) != 1:
             console.print("[red]--providers currently only supports a single video at a time.[/red]")
             raise SystemExit(1)
-        _analyze_ensemble(video_paths[0], providers, detail, output, fps, dancers, no_cache, fmt, use_pose)
+        _analyze_ensemble(video_paths[0], providers, detail, output, fps, dancers, no_cache, fmt, use_pose, max_dimension)
         return
 
     if use_pose and provider != "gemini":
@@ -110,9 +143,9 @@ def analyze(video_paths: tuple[Path, ...], provider: str, model: str | None, det
     }
 
     if len(video_paths) == 1:
-        _analyze_single(video_paths[0], provider, model, detail, output, fps, dancers, no_cache, fmt, use_pose, save_history, comp_info)
+        _analyze_single(video_paths[0], provider, model, detail, output, fps, dancers, no_cache, fmt, use_pose, save_history, comp_info, save_report=save_report, max_dimension=max_dimension)
     else:
-        _analyze_batch(video_paths, provider, model, detail, fps, dancers, no_cache, fmt, parallel, use_pose, save_history, comp_info)
+        _analyze_batch(video_paths, provider, model, detail, fps, dancers, no_cache, fmt, parallel, use_pose, save_history, comp_info, max_dimension=max_dimension)
 
 
 def _analyze_single(
@@ -120,20 +153,24 @@ def _analyze_single(
     output: Path | None, fps: float, dancers: str | None, no_cache: bool, fmt: str,
     use_pose: bool = False, save_history: str | None = None,
     comp_info: dict | None = None,
+    save_report: Path | None = None,
+    max_dimension: int = _DEFAULT_MAX_DIMENSION,
 ) -> None:
     """Analyze a single video with full reporting."""
     from .scoring import compute_final_scores
-    from .report import print_report, save_report_json, save_report_csv
+    from .report import print_report, save_report_csv, save_report_json, save_report_text
     from .cache import get_cached_result, save_to_cache, segments_to_dicts, dicts_to_segments
 
     console.print(f"\n[bold]WCS Analyzer[/bold] — analyzing [cyan]{video_path.name}[/cyan]")
     console.print(f"  Provider: [bold]{provider}[/bold] ({model})")
+    if provider != "gemini" and max_dimension != _DEFAULT_MAX_DIMENSION:
+        console.print(f"  Frame resolution: [bold]{max_dimension}px[/bold]")
     if dancers:
         console.print(f"  Dancers: [cyan]{dancers}[/cyan]")
     console.print()
 
     try:
-        cache_key_model = f"{provider}:{model}:{dancers or ''}"
+        cache_key_model = _cache_key_model(provider, model, dancers, max_dimension)
         cached = None
         if not no_cache:
             cached = get_cached_result(video_path, fps, detail, cache_key_model)
@@ -146,9 +183,9 @@ def _analyze_single(
         elif provider == "gemini":
             segments = _analyze_with_gemini(video_path, model, detail, dancers, pose_context)
         elif provider == "claude-code":
-            segments = _analyze_with_claude_code(video_path, detail, fps, dancers)
+            segments = _analyze_with_claude_code(video_path, detail, fps, dancers, max_dimension)
         else:
-            segments = _analyze_with_claude(video_path, model, detail, fps, dancers)
+            segments = _analyze_with_claude(video_path, model, detail, fps, dancers, max_dimension)
 
         if cached is None and not no_cache:
             save_to_cache(video_path, fps, detail, cache_key_model, segments_to_dicts(segments))
@@ -179,6 +216,9 @@ def _analyze_single(
             console.print(f"\n  JSON report saved to [cyan]{out_path}[/cyan]")
         else:
             print_report(scores, video_path.name)
+            if save_report:
+                save_report_text(scores, video_path.name, save_report)
+                console.print(f"\n  Text report saved to [cyan]{save_report}[/cyan]")
             # Always persist a JSON copy alongside the terminal output so
             # every run is replayable without re-burning tokens.
             out_path = output or Path(video_path.stem + "_report.json")
@@ -194,6 +234,7 @@ def _analyze_ensemble(
     video_path: Path, providers: list[str], detail: str,
     output: Path | None, fps: float, dancers: str | None,
     no_cache: bool, fmt: str, use_pose: bool,
+    max_dimension: int = _DEFAULT_MAX_DIMENSION,
 ) -> None:
     """Run multiple providers on a single video and aggregate their scores."""
     from .scoring import aggregate_ensemble, compute_final_scores
@@ -212,7 +253,7 @@ def _analyze_ensemble(
     for provider in providers:
         model = _DEFAULT_MODELS[provider]
         console.print(f"  [bold]\u25b8[/bold] Running [cyan]{provider}[/cyan] ({model})...")
-        cache_key_model = f"{provider}:{model}:{dancers or ''}"
+        cache_key_model = _cache_key_model(provider, model, dancers, max_dimension)
         cached = None
         if not no_cache:
             cached = get_cached_result(video_path, fps, detail, cache_key_model)
@@ -224,9 +265,9 @@ def _analyze_ensemble(
             elif provider == "gemini":
                 segments = _analyze_with_gemini(video_path, model, detail, dancers, pose_context)
             elif provider == "claude-code":
-                segments = _analyze_with_claude_code(video_path, detail, fps, dancers)
+                segments = _analyze_with_claude_code(video_path, detail, fps, dancers, max_dimension)
             else:
-                segments = _analyze_with_claude(video_path, model, detail, fps, dancers)
+                segments = _analyze_with_claude(video_path, model, detail, fps, dancers, max_dimension)
 
             if cached is None and not no_cache:
                 save_to_cache(video_path, fps, detail, cache_key_model, segments_to_dicts(segments))
@@ -235,6 +276,8 @@ def _analyze_ensemble(
             continue
 
         per_provider[provider] = compute_final_scores(segments)
+        for w in per_provider[provider].warnings:
+            console.print(f"    [yellow]\u26a0 {w}[/yellow]")
 
     if len(per_provider) < 2:
         console.print(
@@ -261,6 +304,7 @@ def _analyze_batch(
     fps: float, dancers: str | None, no_cache: bool, fmt: str, parallel: int,
     use_pose: bool = False, save_history: str | None = None,
     comp_info: dict | None = None,
+    max_dimension: int = _DEFAULT_MAX_DIMENSION,
 ) -> None:
     """Analyze multiple videos, optionally in parallel."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -276,7 +320,7 @@ def _analyze_batch(
         console.print(f"  Dancers: [cyan]{dancers}[/cyan]")
     console.print()
 
-    cache_key_model = f"{provider}:{model}:{dancers or ''}"
+    cache_key_model = _cache_key_model(provider, model, dancers, max_dimension)
 
     def _process_one(video_path: Path) -> tuple[Path, object | None, str | None]:
         """Process a single video, return (path, scores, error)."""
@@ -292,9 +336,9 @@ def _analyze_batch(
             elif provider == "gemini":
                 segments = _analyze_with_gemini(video_path, model, detail, dancers, pose_context)
             elif provider == "claude-code":
-                segments = _analyze_with_claude_code(video_path, detail, fps, dancers)
+                segments = _analyze_with_claude_code(video_path, detail, fps, dancers, max_dimension)
             else:
-                segments = _analyze_with_claude(video_path, model, detail, fps, dancers)
+                segments = _analyze_with_claude(video_path, model, detail, fps, dancers, max_dimension)
 
             if cached is None and not no_cache:
                 save_to_cache(video_path, fps, detail, cache_key_model, segments_to_dicts(segments))
@@ -355,12 +399,17 @@ def _analyze_batch(
         console.print(f"  [red]Failed:[/red] {', '.join(errors)}")
 
 
-def _analyze_with_claude_code(video_path: Path, detail: str, fps: float = 3.0, dancers: str | None = None) -> list:
+def _analyze_with_claude_code(
+    video_path: Path, detail: str, fps: float = 3.0, dancers: str | None = None,
+    max_dimension: int = _DEFAULT_MAX_DIMENSION,
+) -> list:
     """Run analysis via the locally installed Claude Code CLI."""
     from .claude_code_analyzer import analyze_dance_claude_code
 
     with console.status("Analyzing with Claude Code CLI (reading frames)..."):
-        segments = analyze_dance_claude_code(video_path, detail=detail, dancers=dancers, fps=fps)
+        segments = analyze_dance_claude_code(
+            video_path, detail=detail, dancers=dancers, fps=fps, max_dimension=max_dimension,
+        )
     console.print("  Claude Code analyzed video frames")
     return segments
 
@@ -436,14 +485,17 @@ def _compute_pose_context(video_path: Path) -> str | None:
     return format_pose_context(metrics)
 
 
-def _analyze_with_claude(video_path: Path, model: str, detail: str, fps: float, dancers: str | None = None) -> list:
+def _analyze_with_claude(
+    video_path: Path, model: str, detail: str, fps: float, dancers: str | None = None,
+    max_dimension: int = _DEFAULT_MAX_DIMENSION,
+) -> list:
     """Run analysis via Claude's frame-based approach."""
     from .video import extract_frames
     from .audio import extract_audio_features
     from .analyzer import analyze_dance
 
     with console.status("Extracting video frames..."):
-        frames = extract_frames(video_path, fps=fps)
+        frames = extract_frames(video_path, fps=fps, max_dimension=max_dimension)
     console.print(f"  Extracted [green]{len(frames.images)}[/green] frames ({frames.duration:.1f}s video)")
 
     if frames.duration < MIN_VIDEO_DURATION:
@@ -494,7 +546,7 @@ def compare(json_files: tuple[Path, ...]):
 
 @main.command()
 @click.argument("video_path", type=click.Path(exists=True, path_type=Path))
-@click.option("--provider", type=click.Choice(["gemini", "claude"]), default="gemini", help="AI provider.")
+@click.option("--provider", type=click.Choice(["gemini", "claude", "claude-code"]), default="gemini", help="AI provider.")
 @click.option("--dancers", default=None, help='Describe which dancers to analyze.')
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging output.")
 def timing(video_path: Path, provider: str, dancers: str | None, verbose: bool):
@@ -548,16 +600,16 @@ def patterns(video_path: Path, provider: str, model: str | None, fps: float):
 
     try:
         if provider == "gemini":
-            from google import genai
             from google.genai import types
             from .gemini_analyzer import (
                 _INLINE_LIMIT,
                 _inline_video,
                 _upload_video,
                 detect_pattern_timeline_gemini,
+                make_client as make_gemini_client,
             )
 
-            client = genai.Client()
+            client = make_gemini_client()
             file_size = video_path.stat().st_size
             with console.status("Uploading video to Gemini..."):
                 if file_size > _INLINE_LIMIT:
@@ -570,14 +622,13 @@ def patterns(video_path: Path, provider: str, model: str | None, fps: float):
                     types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
                 )
         else:
-            import anthropic
-            from .analyzer import detect_pattern_timeline
+            from .analyzer import detect_pattern_timeline, make_client as make_anthropic_client
 
             with console.status("Extracting frames..."):
                 frames = extract_frames(video_path, fps=fps)
             console.print(f"  Extracted [green]{len(frames.images)}[/green] frames")
 
-            ac = anthropic.Anthropic()
+            ac = make_anthropic_client()
             with console.status("Detecting patterns..."):
                 timeline = detect_pattern_timeline(ac, model, frames)
     except WCSAnalyzerError as e:

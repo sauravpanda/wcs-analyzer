@@ -62,15 +62,19 @@ def _score_line(label: str, score: float, weight: str = "", lo: float = 0.0, hi:
     return line
 
 
-def print_report(scores: FinalScores, video_name: str) -> None:
+def print_report(scores: FinalScores, video_name: str, out: Console | None = None) -> None:
     """Print the full analysis report to the terminal.
 
     Uses plain Rich-formatted text instead of ASCII tables so content
     never gets swallowed by column-width miscalculations. Every line
     prints left-to-right and wraps naturally.
+
+    `out` defaults to the shared terminal console; `save_report_text`
+    passes a file-backed Console to write the same report to disk.
     """
-    console.print()
-    console.print(Panel(
+    out = out or console
+    out.print()
+    out.print(Panel(
         f"[bold white]WCS Dance Analysis Report[/bold white]\n[dim]{video_name}[/dim]",
         style="blue", padding=(1, 2),
     ))
@@ -80,22 +84,26 @@ def print_report(scores: FinalScores, video_name: str) -> None:
     ci = _ci_str(scores.overall_low, scores.overall_high)
     ci_part = f"  [dim]{ci}[/dim]" if ci else ""
     warn = "  [bold yellow]\u26a0 low confidence[/bold yellow]" if scores.low_confidence else ""
-    console.print(Panel(
+    out.print(Panel(
         f"  [bold]Overall Score:[/bold] [{color}]{scores.overall} / 10[/{color}]"
         f"{ci_part}  [{color}]({scores.grade})[/{color}]{warn}",
         style=color,
     ))
 
+    # Parse-failure warnings: placeholder scores must never look real
+    for w in scores.warnings:
+        out.print(f"  [bold yellow]\u26a0 {w}[/bold yellow]")
+
     # Category scores
-    console.print("\n  [bold cyan]Category Scores[/bold cyan]")
+    out.print("\n  [bold cyan]Category Scores[/bold cyan]")
     for name, score, lo, hi, weight in [
         ("Timing & Rhythm", scores.timing, scores.timing_low, scores.timing_high, "30%"),
         ("Technique", scores.technique, scores.technique_low, scores.technique_high, "30%"),
         ("Teamwork", scores.teamwork, scores.teamwork_low, scores.teamwork_high, "20%"),
         ("Presentation", scores.presentation, scores.presentation_low, scores.presentation_high, "20%"),
     ]:
-        console.print(_score_line(name, score, weight, lo, hi))
-    console.print()
+        out.print(_score_line(name, score, weight, lo, hi))
+    out.print()
 
     # Technique breakdown
     tech_raw: dict = {}
@@ -103,7 +111,7 @@ def print_report(scores: FinalScores, video_name: str) -> None:
         if seg.raw_data and "technique" in seg.raw_data:
             tech_raw = seg.raw_data["technique"]
             break
-    console.print("  [bold cyan]Technique Breakdown[/bold cyan]")
+    out.print("  [bold cyan]Technique Breakdown[/bold cyan]")
     for area, score, note_key in [
         ("Posture", scores.posture, "posture"),
         ("Extension", scores.extension, "extension"),
@@ -111,45 +119,45 @@ def print_report(scores: FinalScores, video_name: str) -> None:
         ("Slot", scores.slot, "slot"),
     ]:
         notes = tech_raw.get(note_key, {}).get("notes", "") if isinstance(tech_raw.get(note_key), dict) else ""
-        console.print(_score_line(area, score, notes=notes))
-    console.print()
+        out.print(_score_line(area, score, notes=notes))
+    out.print()
 
     # Partner breakdown
     if scores.lead_technique > 0 or scores.follow_technique > 0:
-        console.print("  [bold cyan]Partner Breakdown[/bold cyan]")
+        out.print("  [bold cyan]Partner Breakdown[/bold cyan]")
         lc = _score_color(scores.lead_technique)
         fc = _score_color(scores.follow_technique)
         lpc = _score_color(scores.lead_presentation)
         fpc = _score_color(scores.follow_presentation)
-        console.print(
+        out.print(
             f"    [bold]Lead[/bold]   — Technique: [{lc}]{scores.lead_technique}[/{lc}]"
             f"  Presentation: [{lpc}]{scores.lead_presentation}[/{lpc}]"
         )
-        console.print(
+        out.print(
             f"    [bold]Follow[/bold] — Technique: [{fc}]{scores.follow_technique}[/{fc}]"
             f"  Presentation: [{fpc}]{scores.follow_presentation}[/{fpc}]"
         )
         if scores.lead_notes:
-            console.print(f"    [dim]Lead:[/dim] {scores.lead_notes}")
+            out.print(f"    [dim]Lead:[/dim] {scores.lead_notes}")
         if scores.follow_notes:
-            console.print(f"    [dim]Follow:[/dim] {scores.follow_notes}")
-        console.print()
+            out.print(f"    [dim]Follow:[/dim] {scores.follow_notes}")
+        out.print()
 
     # Off-beat moments
     if scores.off_beat_moments:
-        console.print(f"  [bold]Off-beat moments:[/bold] [red]{scores.total_off_beat} detected[/red]")
+        out.print(f"  [bold]Off-beat moments:[/bold] [red]{scores.total_off_beat} detected[/red]")
         for moment in scores.off_beat_moments:
             if isinstance(moment, str):
-                console.print(f"    [red]-[/red] {moment}")
+                out.print(f"    [red]-[/red] {moment}")
             else:
                 time_str = moment.get("timestamp_approx", moment.get("time", "?"))
                 desc = moment.get("description", "")
                 beat = moment.get("beat_count", "")
                 beat_str = f" ({beat})" if beat else ""
-                console.print(f"    [red]-[/red] {time_str}{beat_str}: {desc}")
-        console.print()
+                out.print(f"    [red]-[/red] {time_str}{beat_str}: {desc}")
+        out.print()
     else:
-        console.print("  [bold]Off-beat moments:[/bold] [green]None detected[/green]\n")
+        out.print("  [bold]Off-beat moments:[/bold] [green]None detected[/green]\n")
 
     # Patterns
     quality_colors = {"strong": "green", "solid": "yellow", "needs_work": "dark_orange", "weak": "red"}
@@ -157,7 +165,7 @@ def print_report(scores: FinalScores, video_name: str) -> None:
     if scores.pattern_details:
         n_unique = len(scores.pattern_details)
         n_total = sum(scores.pattern_counts.values()) if scores.pattern_counts else n_unique
-        console.print(f"  [bold cyan]Patterns[/bold cyan] ({n_unique} unique, {n_total} total)")
+        out.print(f"  [bold cyan]Patterns[/bold cyan] ({n_unique} unique, {n_total} total)")
         for pd in scores.pattern_details:
             name = pd.get("name", "?")
             q = pd.get("quality")
@@ -169,53 +177,53 @@ def print_report(scores: FinalScores, video_name: str) -> None:
             count = scores.pattern_counts.get(name, 1)
             count_str = f"[cyan]{count}\u00d7[/cyan]" if count > 1 else "[dim]1\u00d7[/dim]"
             notes = pd.get("notes", "")
-            console.print(
+            out.print(
                 f"    [bold]{name:<28}[/bold] {count_str}  [{qc}]{q_str:<11}[/{qc}]"
                 f"  [{tc}]{t_str:<13}[/{tc}]"
             )
             if notes:
-                console.print(f"{'':>6}[dim]{notes}[/dim]")
-        console.print()
+                out.print(f"{'':>6}[dim]{notes}[/dim]")
+        out.print()
     elif scores.all_patterns:
-        console.print(f"  [bold]Patterns:[/bold] {', '.join(scores.all_patterns)}\n")
+        out.print(f"  [bold]Patterns:[/bold] {', '.join(scores.all_patterns)}\n")
 
     # Pattern timeline
     if len(scores.pattern_timeline) >= 2:
-        console.print("  [bold cyan]Pattern Timeline[/bold cyan]")
+        out.print("  [bold cyan]Pattern Timeline[/bold cyan]")
         for entry in scores.pattern_timeline:
             start = _format_time(entry["start_time"])
             end = _format_time(entry["end_time"])
             names = entry.get("patterns", [])
             pat_str = ", ".join(names) if names else "\u2014"
-            console.print(f"    [dim]{start} \u2192 {end}[/dim]  {pat_str}")
-        console.print()
+            out.print(f"    [dim]{start} \u2192 {end}[/dim]  {pat_str}")
+        out.print()
 
     # Strengths
     if scores.top_strengths:
-        console.print("  [bold green]Strengths[/bold green]")
+        out.print("  [bold green]Strengths[/bold green]")
         for s in scores.top_strengths:
-            console.print(f"    [green]\u2022[/green] {s}")
-        console.print()
+            out.print(f"    [green]\u2022[/green] {s}")
+        out.print()
 
     # Improvements
     if scores.top_improvements:
-        console.print("  [bold yellow]Areas to Improve[/bold yellow]")
+        out.print("  [bold yellow]Areas to Improve[/bold yellow]")
         for s in scores.top_improvements:
-            console.print(f"    [yellow]\u2022[/yellow] {s}")
-        console.print()
+            out.print(f"    [yellow]\u2022[/yellow] {s}")
+        out.print()
 
     # Reasoning
     if scores.reasoning:
-        console.print("  [bold cyan]Judge's Reasoning[/bold cyan]")
+        out.print("  [bold cyan]Judge's Reasoning[/bold cyan]")
         for cat in ("timing", "technique", "teamwork", "presentation"):
             text = scores.reasoning.get(cat)
             if text:
-                console.print(f"    [bold]{cat.title():<14}[/bold] [dim]{text}[/dim]")
-        console.print()
+                out.print(f"    [bold]{cat.title():<14}[/bold] [dim]{text}[/dim]")
+        out.print()
 
     # Overall impression
     if scores.overall_impression:
-        console.print(Panel(scores.overall_impression, title="Judge's Notes", style="dim"))
+        out.print(Panel(scores.overall_impression, title="Judge's Notes", style="dim"))
 
     # API usage and estimated cost
     usage = scores.usage
@@ -226,12 +234,12 @@ def print_report(scores: FinalScores, video_name: str) -> None:
             if usage.pricing_known else
             f"~${usage.estimated_cost:.4f} [yellow](unknown model {usage.model})[/yellow]"
         )
-        console.print(
+        out.print(
             f"\n  [bold]API usage:[/bold] "
             f"{usage.input_tokens:,} in + {usage.output_tokens:,} out "
             f"= {total_tokens:,} tokens"
         )
-        console.print(
+        out.print(
             f"  [bold]Estimated cost:[/bold] {cost_str}  "
             f"[dim](pricing as of {pricing_updated_on()}; set WCS_PRICING_FILE to override)[/dim]"
         )
@@ -266,6 +274,19 @@ def print_timing_report(scores: FinalScores, video_name: str) -> None:
     console.print()
 
 
+def save_report_text(scores: FinalScores, video_name: str, path: Path) -> None:
+    """Write the terminal report to a plain-text file (no ANSI codes).
+
+    Renders through a file-backed Console so the on-disk report matches
+    what the terminal shows, minus color.
+    """
+    with open(path, "w", encoding="utf-8") as f:
+        file_console = Console(
+            file=f, width=100, force_terminal=False, color_system=None, highlight=False,
+        )
+        print_report(scores, video_name, out=file_console)
+
+
 def save_report_json(scores: FinalScores, path: Path) -> None:
     """Save the full report as JSON."""
     data = {
@@ -276,6 +297,8 @@ def save_report_json(scores: FinalScores, path: Path) -> None:
             "comp_mode": scores.comp_mode,
             "comp_stage": scores.comp_stage,
         },
+        "warnings": scores.warnings,
+        "parse_failures": scores.parse_failures,
         "scores": {
             "overall": scores.overall,
             "overall_low": scores.overall_low,
@@ -353,6 +376,8 @@ def save_report_csv(scores: FinalScores, path: Path) -> None:
         # Summary section
         writer.writerow(["Section", "Category", "Score", "Grade", "Details"])
         writer.writerow(["Overall", "", scores.overall, scores.grade, scores.overall_impression])
+        for w in scores.warnings:
+            writer.writerow(["Warning", "", "", "", w])
         writer.writerow(["Category", "Timing", scores.timing, "", "Weight: 30%"])
         writer.writerow(["Category", "Technique", scores.technique, "", "Weight: 30%"])
         writer.writerow(["Category", "Teamwork", scores.teamwork, "", "Weight: 20%"])

@@ -54,3 +54,12 @@ def test_get_video_duration_raises_on_missing_file():
     from wcs_analyzer.video import get_video_duration
     with pytest.raises(VideoProcessingError):
         get_video_duration(Path("/nonexistent/nope.mp4"))
+
+
+def test_group_frames_zero_bpm_falls_back_instead_of_crashing():
+    """Silent clips yield bpm=0 from audio extraction; grouping must not divide by zero."""
+    frames = FrameData(images=["a", "b"], timestamps=[0.0, 3.0], duration=6.0)
+    phrases = group_frames_by_phrase(frames, beats_per_phrase=8, bpm=0.0)
+    assert phrases  # grouped at the fallback tempo (120 BPM -> 4s phrases)
+    assert all(p["end_time"] > p["start_time"] for p in phrases)
+    assert sum(len(p["images"]) for p in phrases) == 2

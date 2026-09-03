@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 # frames ≈ 800k tokens which far exceeds a single call but caps memory.
 _MAX_TOTAL_FRAMES = 500
 
+# Assumed tempo when beat detection finds nothing (silent clip, no audio
+# stream). Typical WCS music sits around 90-120 BPM.
+_FALLBACK_BPM = 120.0
+
 
 @dataclass
 class FrameData:
@@ -173,6 +177,12 @@ def group_frames_by_phrase(
     Returns:
         List of dicts with 'images', 'timestamps', 'phrase_index', 'start_time', 'end_time'.
     """
+    if bpm <= 0:
+        # No tempo detected (silent video or failed beat tracking). Fall
+        # back to a typical WCS tempo so grouping still works instead of
+        # dividing by zero after the CLI promised a visual-only analysis.
+        logger.warning("No tempo available; grouping phrases at an assumed %.0f BPM", _FALLBACK_BPM)
+        bpm = _FALLBACK_BPM
     phrase_duration = (beats_per_phrase / bpm) * 60  # seconds per phrase
     phrases = []
 

@@ -118,7 +118,10 @@ wcs-analyzer analyze video.mp4 [OPTIONS]
 | `--providers` | — | Comma-separated list for **ensemble mode** (e.g. `gemini,claude-code`). Each runs independently; results are aggregated with disagreement flagging |
 | `--model` | auto | Model ID (defaults to `gemini-3.1-pro-preview` or `claude-sonnet-4-6`) |
 | `--detail` | `medium` | Analysis granularity: `low`, `medium`, `high` |
-| `--fps` | `3.0` | Frames per second to sample — Claude only (1-30) |
+| `--fps` | `3.0` | Frames per second to sample — Claude API provider only (1-30); `claude-code` derives its rate from `--detail` |
+| `--hd` | — | Send 1080px frames instead of 768px to the Claude providers (sharper footwork and frame detail, roughly 2× the image tokens) |
+| `--max-dimension` | `768` | Exact longest frame edge in pixels for the Claude providers; overrides `--hd` |
+| `-r`, `--save-report` | — | Also write the terminal report to a plain-text file (single video only) |
 | `--dancers` | — | Describe which dancers to focus on (for crowded floors) |
 | `--pose` | — | Run MediaPipe pose estimation + beat-sync and feed the measured metrics to the LLM (Gemini only; needs `[pose]` extra) |
 | `--save-history` | — | Persist this run's scores under the given dancer name for longitudinal tracking |
@@ -149,6 +152,9 @@ wcs-analyzer analyze competition.mp4 --model gemini-2.5-flash
 # Export as CSV
 wcs-analyzer analyze competition.mp4 --format csv -o scores.csv
 
+# Claude Code with sharper 1080px frames, plus a shareable text copy of the report
+wcs-analyzer analyze competition.mp4 --provider claude-code --hd -r competition_report.txt
+
 # Pose-driven objective metrics (MediaPipe) + beat-sync verification
 wcs-analyzer analyze competition.mp4 --pose
 
@@ -166,6 +172,7 @@ A faster, cheaper analysis focused only on beat alignment:
 ```bash
 wcs-analyzer timing video.mp4
 wcs-analyzer timing video.mp4 --provider claude
+wcs-analyzer timing video.mp4 --provider claude-code
 ```
 
 ### `compare` — Compare multiple analyses
@@ -283,6 +290,8 @@ Results are automatically cached in `~/.wcs-analyzer/cache/` based on a hash of 
 wcs-analyzer analyze video.mp4 --no-cache
 ```
 
+The cache key includes the frame resolution for the Claude providers, so `--hd` never returns a 768px result. Runs whose model response could not be parsed are **never cached**: the report marks them with a ⚠ warning (and `warnings` / `parse_failures` in the JSON), the placeholder 5.0s are excluded from any averages, and the next run simply tries again.
+
 ## Architecture
 
 ```
@@ -321,7 +330,7 @@ src/wcs_analyzer/
 # Install with dev dependencies
 pip install -e ".[dev]"
 
-# Or with uv
+# Or with uv (installs the dev tools too)
 uv sync
 ```
 
@@ -330,7 +339,7 @@ uv sync
 ```bash
 ruff check src/ tests/    # Lint
 pyright src/               # Type check
-pytest tests/ -v           # Tests (156+ tests, all mocked, no API key needed)
+pytest tests/ -v           # Tests (230+ tests, all mocked, no API key needed)
 ```
 
 ### Run all CI checks locally

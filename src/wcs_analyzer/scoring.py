@@ -111,6 +111,13 @@ class FinalScores:
     overall_high: float = 0.0
     low_confidence: bool = False
 
+    # Segments whose model response could not be parsed. Their placeholder
+    # 5.0 scores are excluded from the averages whenever at least one
+    # segment parsed cleanly; `warnings` carries the human-readable
+    # explanation that the report layer surfaces next to the score.
+    parse_failures: int = 0
+    warnings: list[str] = field(default_factory=list)
+
     # Per-category reasoning (from summary or first segment with reasoning)
     reasoning: dict[str, str] = field(default_factory=dict)
 
@@ -178,8 +185,34 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
     scoring_segments = segments[:-1] if has_summary else segments
     summary = segments[-1] if has_summary else None
 
+    # Separate cleanly parsed segments from placeholder ones. A placeholder
+    # carries neutral 5.0s that would silently pull real scores toward the
+    # middle, so average over the clean subset whenever there is one.
+    failed_segments = [s for s in scoring_segments if _is_parse_failure(s)]
+    clean_segments = [s for s in scoring_segments if not _is_parse_failure(s)]
+    summary_failed = summary is not None and _is_parse_failure(summary)
+    avg_segments = clean_segments or scoring_segments
+
+    warning_msgs: list[str] = []
+    if failed_segments and clean_segments:
+        warning_msgs.append(
+            f"{len(failed_segments)} of {len(scoring_segments)} segment responses could not "
+            "be parsed and were excluded from the averages."
+        )
+    elif failed_segments:
+        warning_msgs.append(
+            "The model's response could not be parsed. All scores below are placeholder "
+            "5.0 values, not a judgment of the dancing. Re-run the analysis."
+        )
+    if summary_failed:
+        warning_msgs.append(
+            "The whole-video summary could not be parsed; scores are averaged from the "
+            "per-segment results instead."
+        )
+    parse_failures = len(failed_segments) + (1 if summary_failed else 0)
+
     # Use summary scores if available, otherwise average
-    if summary and summary.raw_data and "error" not in summary.raw_data:
+    if summary and summary.raw_data and not summary_failed:
         timing = summary.timing_score
         technique = summary.technique_score
         teamwork = summary.teamwork_score
@@ -193,23 +226,23 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         tw_lo, tw_hi = summary.teamwork_low, summary.teamwork_high
         pres_lo, pres_hi = summary.presentation_low, summary.presentation_high
     else:
-        n = len(scoring_segments)
-        timing = sum(s.timing_score for s in scoring_segments) / n
-        technique = sum(s.technique_score for s in scoring_segments) / n
-        teamwork = sum(s.teamwork_score for s in scoring_segments) / n
-        presentation = sum(s.presentation_score for s in scoring_segments) / n
-        posture = sum(s.posture_score for s in scoring_segments) / n
-        extension = sum(s.extension_score for s in scoring_segments) / n
-        footwork = sum(s.footwork_score for s in scoring_segments) / n
-        slot = sum(s.slot_score for s in scoring_segments) / n
-        timing_lo = sum(s.timing_low for s in scoring_segments) / n
-        timing_hi = sum(s.timing_high for s in scoring_segments) / n
-        tech_lo = sum(s.technique_low for s in scoring_segments) / n
-        tech_hi = sum(s.technique_high for s in scoring_segments) / n
-        tw_lo = sum(s.teamwork_low for s in scoring_segments) / n
-        tw_hi = sum(s.teamwork_high for s in scoring_segments) / n
-        pres_lo = sum(s.presentation_low for s in scoring_segments) / n
-        pres_hi = sum(s.presentation_high for s in scoring_segments) / n
+        n = len(avg_segments)
+        timing = sum(s.timing_score for s in avg_segments) / n
+        technique = sum(s.technique_score for s in avg_segments) / n
+        teamwork = sum(s.teamwork_score for s in avg_segments) / n
+        presentation = sum(s.presentation_score for s in avg_segments) / n
+        posture = sum(s.posture_score for s in avg_segments) / n
+        extension = sum(s.extension_score for s in avg_segments) / n
+        footwork = sum(s.footwork_score for s in avg_segments) / n
+        slot = sum(s.slot_score for s in avg_segments) / n
+        timing_lo = sum(s.timing_low for s in avg_segments) / n
+        timing_hi = sum(s.timing_high for s in avg_segments) / n
+        tech_lo = sum(s.technique_low for s in avg_segments) / n
+        tech_hi = sum(s.technique_high for s in avg_segments) / n
+        tw_lo = sum(s.teamwork_low for s in avg_segments) / n
+        tw_hi = sum(s.teamwork_high for s in avg_segments) / n
+        pres_lo = sum(s.presentation_low for s in avg_segments) / n
+        pres_hi = sum(s.presentation_high for s in avg_segments) / n
 
     # Weighted overall (and weighted CI bounds)
     def _weighted(t: float, tc: float, tw: float, p: float) -> float:
@@ -359,6 +392,8 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         overall_low=round(overall_lo, 1),
         overall_high=round(overall_hi, 1),
         low_confidence=low_conf,
+        parse_failures=parse_failures,
+        warnings=warning_msgs,
         reasoning=reasoning_final,
         posture=round(posture, 1),
         extension=round(extension, 1),
@@ -382,6 +417,11 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
         usage=total_usage,
         segments=scoring_segments,
     )
+
+
+def _is_parse_failure(seg: SegmentAnalysis) -> bool:
+    """True if this segment is a placeholder produced after a failed JSON parse."""
+    return "error" in (seg.raw_data or {})
 
 
 def _collect_top(segments: list[SegmentAnalysis], attr: str, n: int) -> list[str]:

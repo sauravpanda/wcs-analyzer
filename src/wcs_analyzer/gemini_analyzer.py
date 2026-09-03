@@ -8,6 +8,7 @@ from google import genai
 from google.genai import types
 
 from .analyzer import (
+    _RETRY_HINT,
     PatternSegment,
     _default_segment,
     _parse_pattern_timeline,
@@ -34,6 +35,24 @@ _DETAIL_FPS = {"low": 1, "medium": 3, "high": 5}
 _INLINE_LIMIT = 20 * 1024 * 1024  # 20 MB
 
 
+def make_client() -> genai.Client:
+    """Construct a Gemini client, converting a missing key into AnalysisError.
+
+    `genai.Client()` raises a bare ValueError when neither GEMINI_API_KEY
+    nor GOOGLE_API_KEY is set. Surface that as a WCSAnalyzerError so the
+    CLI prints a one-line hint instead of a traceback.
+    """
+    try:
+        return genai.Client()
+    except (ValueError, TypeError) as e:
+        raise AnalysisError(
+            "GEMINI_API_KEY is not set. Create a key at "
+            "https://aistudio.google.com/apikey and run "
+            "`export GEMINI_API_KEY=...`, or use --provider claude-code instead. "
+            f"(SDK said: {e})"
+        ) from e
+
+
 def analyze_dance_gemini(
     video_path: Path,
     model: str = "gemini-2.5-flash",
@@ -56,7 +75,7 @@ def analyze_dance_gemini(
     Returns:
         List containing a single SegmentAnalysis covering the full video.
     """
-    client = genai.Client()
+    client = make_client()
     fps = _DETAIL_FPS.get(detail, 2)
     file_size = video_path.stat().st_size
 
@@ -109,6 +128,16 @@ def analyze_dance_gemini(
         contents=[video_part, prompt],
         resolution=resolution,
     )
+    if safe_parse_json(result) is None:
+        # Mirror the Claude path: one corrective retry before falling back
+        # to placeholder scores (which the report flags and the cache skips).
+        logger.warning("Gemini response was not valid JSON; retrying once with a corrective hint")
+        result, retry_usage = _call_gemini(
+            client, model,
+            contents=[video_part, f"{prompt}\n\n{_RETRY_HINT}"],
+            resolution=resolution,
+        )
+        usage = usage.add(retry_usage)
     usage = usage.add(pattern_usage)
     parsed = _parse_response(result, usage)
     # A Gemini run produces a single whole-video result — treat it as

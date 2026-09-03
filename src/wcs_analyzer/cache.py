@@ -45,12 +45,35 @@ def get_cached_result(
     return None
 
 
+def has_parse_failures(segments: list[dict]) -> bool:
+    """True if any serialized segment carries a parse-failure marker.
+
+    Providers that fail to parse the model's response fall back to a
+    placeholder segment whose `raw_data` contains an `error` key.
+    """
+    return any("error" in (seg.get("raw_data") or {}) for seg in segments)
+
+
 def save_to_cache(
     video_path: Path, fps: float, detail: str, model: str,
     segments: list[dict],
     cache_dir: Path = DEFAULT_CACHE_DIR,
 ) -> None:
-    """Save analysis result to cache."""
+    """Save analysis result to cache.
+
+    Results containing placeholder segments (the model's response could
+    not be parsed) are deliberately not cached: caching them would make
+    every subsequent run replay fake 5.0 scores until the user notices
+    and passes --no-cache.
+    """
+    if has_parse_failures(segments):
+        logger.warning(
+            "Not caching result for %s: at least one segment failed to parse. "
+            "Re-run to try again.",
+            video_path.name,
+        )
+        return
+
     cache_dir.mkdir(parents=True, exist_ok=True)
     key = _cache_key(video_path, fps, detail, model)
     cache_file = cache_dir / f"{key}.json"

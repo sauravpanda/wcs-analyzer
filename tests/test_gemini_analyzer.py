@@ -226,3 +226,66 @@ class TestFormatPatternTimelineForPrompt:
         from wcs_analyzer.gemini_analyzer import _format_pattern_timeline_for_prompt
         text = _format_pattern_timeline_for_prompt([])
         assert "DETECTED PATTERN TIMELINE" in text
+
+
+class TestMakeClient:
+    @patch("wcs_analyzer.gemini_analyzer.genai.Client", side_effect=ValueError("No API key was provided."))
+    def test_missing_key_raises_analysis_error(self, mock_client_cls: MagicMock):
+        import pytest
+        from wcs_analyzer.exceptions import AnalysisError
+        from wcs_analyzer.gemini_analyzer import make_client
+
+        with pytest.raises(AnalysisError, match="GEMINI_API_KEY"):
+            make_client()
+
+
+class TestGeminiParseRetry:
+    """The Gemini path retries once with a corrective hint, like the Claude path."""
+
+    def _run(self, mock_call: MagicMock, tmp_path: Path):
+        video = tmp_path / "clip.mp4"
+        video.write_bytes(b"x" * 1000)
+        with patch("wcs_analyzer.gemini_analyzer._inline_video") as mock_inline, \
+             patch("wcs_analyzer.gemini_analyzer.genai.Client"):
+            mock_inline.return_value = MagicMock()
+            return analyze_dance_gemini(
+                video, model="gemini-2.5-flash", detail="medium", pattern_pre_pass=False,
+            )
+
+    @patch("wcs_analyzer.gemini_analyzer._call_gemini")
+    def test_retry_recovers_from_bad_json(self, mock_call: MagicMock, tmp_path: Path):
+        from wcs_analyzer.pricing import UsageTotals
+        mock_call.side_effect = [
+            ("Sure! Here is my analysis in prose...", UsageTotals.from_counts("gemini-2.5-flash", 100, 50)),
+            (VALID_GEMINI_RESPONSE, UsageTotals.from_counts("gemini-2.5-flash", 1000, 500)),
+        ]
+        results = self._run(mock_call, tmp_path)
+
+        assert mock_call.call_count == 2
+        retry_prompt = mock_call.call_args_list[1].kwargs["contents"][-1]
+        assert "could not be parsed" in retry_prompt
+        assert results[0].timing_score == 8.0
+        assert "error" not in results[0].raw_data
+        # Both calls are billed
+        assert results[0].usage.input_tokens == 1100
+        assert results[0].usage.output_tokens == 550
+
+    @patch("wcs_analyzer.gemini_analyzer._call_gemini")
+    def test_double_failure_yields_flagged_placeholder(self, mock_call: MagicMock, tmp_path: Path):
+        from wcs_analyzer.pricing import UsageTotals
+        mock_call.side_effect = [
+            ("nope", UsageTotals.from_counts("gemini-2.5-flash", 100, 50)),
+            ("still nope", UsageTotals.from_counts("gemini-2.5-flash", 100, 50)),
+        ]
+        results = self._run(mock_call, tmp_path)
+
+        assert mock_call.call_count == 2
+        assert results[0].timing_score == 5.0
+        assert "error" in results[0].raw_data
+
+    @patch("wcs_analyzer.gemini_analyzer._call_gemini")
+    def test_valid_json_does_not_retry(self, mock_call: MagicMock, tmp_path: Path):
+        from wcs_analyzer.pricing import UsageTotals
+        mock_call.return_value = (VALID_GEMINI_RESPONSE, UsageTotals.from_counts("gemini-2.5-flash", 1, 1))
+        self._run(mock_call, tmp_path)
+        assert mock_call.call_count == 1

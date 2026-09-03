@@ -341,6 +341,30 @@ def _parse_pattern_timeline(items: list, duration: float) -> list[PatternSegment
     return segments
 
 
+def make_client() -> anthropic.Anthropic:
+    """Construct an Anthropic client, failing early with a clear message.
+
+    The SDK does not validate credentials at construction time; without
+    them the first request dies with a bare TypeError from deep inside
+    the HTTP layer. Check up front so the CLI can print an actionable
+    one-liner instead of a traceback.
+    """
+    client = anthropic.Anthropic()
+    # SDK 0.x exposes api_key / auth_token; 1.x adds `credentials` (an
+    # `ant auth login` profile or workload identity). Any one is enough.
+    has_credentials = any(
+        getattr(client, attr, None) for attr in ("api_key", "auth_token", "credentials")
+    )
+    if not has_credentials:
+        raise AnalysisError(
+            "No Anthropic credentials found: ANTHROPIC_API_KEY is not set. Create a key at "
+            "https://console.anthropic.com/ and run `export ANTHROPIC_API_KEY=sk-ant-...` "
+            "(or sign in with `ant auth login` on anthropic SDK 1.x), or use "
+            "--provider gemini / --provider claude-code instead."
+        )
+    return client
+
+
 def _default_segment(
     start_time: float, end_time: float, raw: str,
     usage: UsageTotals | None = None,
@@ -375,7 +399,7 @@ def analyze_dance(
     Returns:
         List of SegmentAnalysis results, one per segment plus a final summary.
     """
-    client = anthropic.Anthropic()
+    client = make_client()
     max_frames = _effective_max_frames()
 
     # Group frames into 8-count phrases
@@ -470,8 +494,13 @@ def _call_claude(
                 model=model,
                 max_tokens=4096,
                 system=SYSTEM_PROMPT,
-                temperature=temperature,
                 messages=[{"role": "user", "content": content}],
+                # anthropic SDK 1.x removed the typed `temperature` keyword
+                # (passing it raises TypeError). The API still accepts it for
+                # the Claude 4.6 models this tool defaults to, and scoring
+                # depends on temperature 0 for reproducibility, so send it via
+                # extra_body, which merges into the request JSON on 0.x and 1.x.
+                extra_body={"temperature": temperature},
             )
             block = response.content[0]
             if not hasattr(block, "text"):
@@ -487,7 +516,14 @@ def _call_claude(
                 logger.warning("Rate limited by API, retrying in %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
                 time.sleep(wait)
             else:
-                raise
+                raise AnalysisError(
+                    f"Claude API rate limit still exceeded after {max_retries} attempts. "
+                    "Wait a minute and re-run, or lower --fps / --detail to send fewer frames."
+                )
+        except anthropic.APIConnectionError as e:
+            raise AnalysisError(f"Could not reach the Claude API: {e}") from e
+        except anthropic.APIStatusError as e:
+            raise AnalysisError(f"Claude API error ({e.status_code}): {e}") from e
     return "", UsageTotals(model=model)
 
 
