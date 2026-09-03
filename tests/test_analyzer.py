@@ -142,8 +142,48 @@ class TestCallClaude:
         err = anth.RateLimitError.__new__(anth.RateLimitError)
         mock_client.messages.create.side_effect = [err, err, err]
 
-        with pytest.raises(anth.RateLimitError):
+        # Exhausted retries surface as a WCSAnalyzerError so the CLI prints a
+        # one-line hint instead of a traceback.
+        with pytest.raises(AnalysisError, match="rate limit"):
             _call_claude(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "hi"}], max_retries=3)
+
+    def test_api_status_error_wrapped(self):
+        import anthropic as anth
+        import httpx
+
+        resp = httpx.Response(401, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = anth.AuthenticationError(
+            "invalid x-api-key", response=resp, body=None,
+        )
+        with pytest.raises(AnalysisError, match="401"):
+            _call_claude(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "hi"}])
+
+    def test_connection_error_wrapped(self):
+        import anthropic as anth
+        import httpx
+
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = anth.APIConnectionError(
+            request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+        )
+        with pytest.raises(AnalysisError, match="Could not reach"):
+            _call_claude(mock_client, "claude-sonnet-4-6", [{"type": "text", "text": "hi"}])
+
+
+class TestMakeClient:
+    @patch("wcs_analyzer.analyzer.anthropic.Anthropic")
+    def test_missing_credentials_raise_analysis_error(self, mock_cls: MagicMock):
+        from wcs_analyzer.analyzer import make_client
+        mock_cls.return_value = MagicMock(api_key=None, auth_token=None)
+        with pytest.raises(AnalysisError, match="ANTHROPIC_API_KEY"):
+            make_client()
+
+    @patch("wcs_analyzer.analyzer.anthropic.Anthropic")
+    def test_api_key_present_returns_client(self, mock_cls: MagicMock):
+        from wcs_analyzer.analyzer import make_client
+        mock_cls.return_value = MagicMock(api_key="sk-ant-test", auth_token=None)
+        assert make_client() is mock_cls.return_value
 
 
 class TestTokenAwareness:

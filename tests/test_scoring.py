@@ -419,3 +419,59 @@ def test_final_scores_prefers_summary_pattern_timeline():
     # Should be the summary's explicit timeline, not the derived one
     assert scores.pattern_timeline[0]["patterns"] == ["starter step"]
     assert scores.pattern_timeline[1]["patterns"] == ["whip", "free spin"]
+
+
+# ---- Parse-failure handling ------------------------------------------------
+
+
+def _failed_segment(start: float, end: float, **kw) -> SegmentAnalysis:
+    """A placeholder segment as produced after a failed JSON parse."""
+    return SegmentAnalysis(
+        start_time=start, end_time=end,
+        raw_data={"error": "Failed to parse response", "raw": "garbage"},
+        **kw,
+    )
+
+
+def test_failed_segments_excluded_from_average():
+    good = SegmentAnalysis(
+        start_time=0.0, end_time=4.0,
+        timing_score=8.0, technique_score=8.0, teamwork_score=8.0, presentation_score=8.0,
+        raw_data={"timing": {"score": 8}},
+    )
+    bad = _failed_segment(4.0, 8.0)
+    scores = compute_final_scores([good, bad])
+
+    # The placeholder 5.0s must not drag the real 8.0 down to 6.5
+    assert scores.timing == 8.0
+    assert scores.overall == 8.0
+    assert scores.parse_failures == 1
+    assert len(scores.warnings) == 1
+    assert "excluded" in scores.warnings[0]
+    # Both segments still appear in the timeline data
+    assert len(scores.segments) == 2
+
+
+def test_all_failed_segments_flagged_as_placeholder():
+    scores = compute_final_scores([_failed_segment(0.0, 60.0)])
+    assert scores.timing == 5.0
+    assert scores.parse_failures == 1
+    assert any("placeholder" in w for w in scores.warnings)
+
+
+def test_failed_summary_falls_back_to_clean_segment_average():
+    seg1 = SegmentAnalysis(start_time=0.0, end_time=4.0, timing_score=6.0, raw_data={"timing": {"score": 6}})
+    seg2 = SegmentAnalysis(start_time=4.0, end_time=8.0, timing_score=8.0, raw_data={"timing": {"score": 8}})
+    summary = _failed_segment(0.0, 8.0, is_summary=True)
+    scores = compute_final_scores([seg1, seg2, summary])
+
+    assert scores.timing == 7.0
+    assert scores.parse_failures == 1
+    assert any("summary" in w for w in scores.warnings)
+
+
+def test_clean_run_has_no_warnings():
+    seg = SegmentAnalysis(start_time=0.0, end_time=4.0, timing_score=7.0, raw_data={"timing": {"score": 7}})
+    scores = compute_final_scores([seg])
+    assert scores.parse_failures == 0
+    assert scores.warnings == []

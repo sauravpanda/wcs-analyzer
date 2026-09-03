@@ -18,5 +18,5 @@ Overall = Timing×0.30 + Technique×0.30 + Teamwork×0.20 + Presentation×0.20
 ## Development
 
 - Run checks: `uv run ruff check src/ tests/ && uv run pyright src/ && uv run pytest tests/ -v`
-- 77 tests, all mocked (no API key needed)
+- 230+ tests, all mocked (no API key needed); `uv sync` installs pytest/ruff/pyright via the `dev` dependency group
 - Three providers: gemini (default, native video), claude-code (local CLI), claude (API)

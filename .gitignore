@@ -47,3 +47,7 @@ report_*.csv
 *_report.json
 *_report.csv
 *_ensemble.json
+
+# Git worktrees (Claude Code and local tooling)
+.worktrees/
+.claude/worktrees/

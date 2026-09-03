@@ -112,3 +112,56 @@ class TestExtractJsonFromProse:
         text = 'First: {"a": 1}. Second: {"b": 2}.'
         result = _extract_json_from_prose(text)
         assert result == {"a": 1}
+
+
+class TestPromptConstruction:
+    """The prompt must describe the frames the model actually gets."""
+
+    def _run(self, detail: str = "medium", **kwargs):
+        from pathlib import Path
+
+        from wcs_analyzer.claude_code_analyzer import analyze_dance_claude_code
+        from wcs_analyzer.pricing import UsageTotals
+        from wcs_analyzer.video import FrameData
+
+        frames = FrameData(
+            images=["aGk=", "aGk=", "aGk="],  # base64("hi")
+            timestamps=[0.0, 0.5, 1.0],
+            fps_original=30.0, fps_sampled=2.0, duration=1.5, width=640, height=480,
+        )
+        with patch("wcs_analyzer.claude_code_analyzer._check_claude_cli", return_value="/bin/claude"), \
+             patch("wcs_analyzer.claude_code_analyzer.extract_frames", return_value=frames) as mock_extract, \
+             patch("wcs_analyzer.claude_code_analyzer._call_claude_cli",
+                   return_value=(VALID_ANALYSIS, UsageTotals())) as mock_cli:
+            segments = analyze_dance_claude_code(Path("clip.mp4"), detail=detail, **kwargs)
+        prompt = mock_cli.call_args[0][1]
+        return segments, prompt, mock_extract
+
+    def test_prompt_states_actual_sampling_rate(self):
+        # The CLI-level --fps (3.0) is not what claude-code samples at; the
+        # detail level decides (medium -> 2 fps). The prompt must say 2 fps.
+        _, prompt, _ = self._run(detail="medium", fps=3.0)
+        assert "sampled at 2 fps" in prompt
+        assert "0.50s apart" in prompt
+        assert "sampled at 3.0 fps" not in prompt
+
+    def test_prompt_lists_frame_timestamps(self):
+        _, prompt, _ = self._run()
+        assert "frame_000.jpg  (t=0.00s)" in prompt
+        assert "frame_001.jpg  (t=0.50s)" in prompt
+        assert "frame_002.jpg  (t=1.00s)" in prompt
+
+    def test_max_dimension_forwarded_to_frame_extraction(self):
+        _, _, mock_extract = self._run(max_dimension=1080)
+        assert mock_extract.call_args.kwargs["max_dimension"] == 1080
+        assert mock_extract.call_args.kwargs["fps"] == 2.0
+
+    def test_default_max_dimension(self):
+        _, _, mock_extract = self._run()
+        assert mock_extract.call_args.kwargs["max_dimension"] == 768
+
+    def test_result_is_whole_video_summary(self):
+        segments, _, _ = self._run()
+        assert len(segments) == 1
+        assert segments[0].is_summary is True
+        assert segments[0].end_time == 1.5

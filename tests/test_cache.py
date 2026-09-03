@@ -5,6 +5,7 @@ from pathlib import Path
 from wcs_analyzer.cache import (
     _cache_key,
     get_cached_result,
+    has_parse_failures,
     save_to_cache,
     segments_to_dicts,
     dicts_to_segments,
@@ -137,3 +138,22 @@ class TestSegmentSerialization:
         assert restored[0].is_summary is False
         assert restored[0].pattern_details == []
         assert restored[0].reasoning == {}
+
+
+class TestParseFailuresNotCached:
+    def test_has_parse_failures_detects_marker(self):
+        assert has_parse_failures([{"raw_data": {"error": "x"}}]) is True
+        assert has_parse_failures([{"raw_data": {"timing": {"score": 7}}}]) is False
+        assert has_parse_failures([{"raw_data": None}, {}]) is False
+
+    def test_failed_result_is_not_written(self, tmp_path: Path):
+        """A placeholder result must never be replayed from cache on the next run."""
+        video = _make_video_file(tmp_path)
+        cache_dir = tmp_path / "cache"
+        failed = [{"timing_score": 5.0, "start_time": 0.0, "end_time": 4.0,
+                   "raw_data": {"error": "Failed to parse response"}}]
+
+        save_to_cache(video, 3.0, "medium", "gemini:x:", failed, cache_dir=cache_dir)
+
+        assert get_cached_result(video, 3.0, "medium", "gemini:x:", cache_dir=cache_dir) is None
+        assert not cache_dir.exists() or not any(cache_dir.iterdir())

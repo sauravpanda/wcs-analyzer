@@ -103,6 +103,7 @@ def analyze_dance_claude_code(
     detail: str = "medium",
     dancers: str | None = None,
     fps: float = 3.0,
+    max_dimension: int = 768,
 ) -> list[SegmentAnalysis]:
     """Analyze a dance video using the Claude Code CLI.
 
@@ -114,7 +115,12 @@ def analyze_dance_claude_code(
         video_path: Path to the video file.
         detail: Analysis detail level (low/medium/high).
         dancers: Optional description of which dancers to focus on.
-        fps: Frames per second to extract.
+        fps: Accepted for interface parity with the Claude API provider.
+            The actual sampling rate is derived from `detail` (see
+            `detail_fps` below), so this value is not used.
+        max_dimension: Max width/height in pixels for extracted frames.
+            768 is the token-efficient default; 1080 (`--hd`) gives the
+            model more detail at higher cost.
 
     Returns:
         List containing a single SegmentAnalysis.
@@ -128,7 +134,7 @@ def analyze_dance_claude_code(
 
     # Extract frames at the analysis FPS directly
     logger.info("Extracting frames at %.1f fps for Claude Code analysis...", analysis_fps)
-    frames = extract_frames(video_path, fps=analysis_fps)
+    frames = extract_frames(video_path, fps=analysis_fps, max_dimension=max_dimension)
 
     if not frames.images:
         raise AnalysisError("No frames extracted from video")
@@ -151,13 +157,19 @@ def analyze_dance_claude_code(
         if dancers:
             dancer_context = DANCER_CONTEXT_TEMPLATE.format(dancer_description=dancers) + "\n\n"
 
-        frame_list = "\n".join(f"- {p}" for p in frame_paths)
+        # Annotate every frame with its timestamp so the model can cite
+        # moments in seconds instead of opaque frame numbers.
+        frame_list = "\n".join(
+            f"- {p}  (t={ts:.2f}s)" for p, ts in zip(frame_paths, frames.timestamps)
+        )
         prompt = (
             f"{SYSTEM_PROMPT}\n\n"
             f"{dancer_context}"
             f"Analyze these {len(frame_paths)} sequential frames from a West Coast Swing dance video "
-            f"({frames.duration:.0f}s total, sampled at {fps} fps).\n\n"
-            f"Read each of these image files and analyze the dance:\n{frame_list}\n\n"
+            f"({frames.duration:.0f}s total, sampled at {analysis_fps:g} fps, so consecutive "
+            f"frames are {1 / analysis_fps:.2f}s apart).\n\n"
+            f"Read each of these image files and analyze the dance. Each frame is listed with "
+            f"its timestamp; when you cite a moment, use the timestamp in seconds:\n{frame_list}\n\n"
             f"After viewing all frames, provide your WSDC-style scoring analysis as JSON.\n\n"
             f"You MUST respond with ONLY valid JSON in this exact format:\n"
             f'{{"timing": {{"score": <1-10>, "off_beat_moments": [], "notes": "..."}}, '

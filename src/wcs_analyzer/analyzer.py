@@ -341,6 +341,25 @@ def _parse_pattern_timeline(items: list, duration: float) -> list[PatternSegment
     return segments
 
 
+def make_client() -> anthropic.Anthropic:
+    """Construct an Anthropic client, failing early with a clear message.
+
+    The SDK does not validate credentials at construction time; without
+    them the first request dies with a bare TypeError from deep inside
+    the HTTP layer. Check up front so the CLI can print an actionable
+    one-liner instead of a traceback.
+    """
+    client = anthropic.Anthropic()
+    if not getattr(client, "api_key", None) and not getattr(client, "auth_token", None):
+        raise AnalysisError(
+            "ANTHROPIC_API_KEY is not set. Create a key at "
+            "https://console.anthropic.com/ and run "
+            "`export ANTHROPIC_API_KEY=sk-ant-...`, or use --provider gemini "
+            "or --provider claude-code instead."
+        )
+    return client
+
+
 def _default_segment(
     start_time: float, end_time: float, raw: str,
     usage: UsageTotals | None = None,
@@ -375,7 +394,7 @@ def analyze_dance(
     Returns:
         List of SegmentAnalysis results, one per segment plus a final summary.
     """
-    client = anthropic.Anthropic()
+    client = make_client()
     max_frames = _effective_max_frames()
 
     # Group frames into 8-count phrases
@@ -487,7 +506,14 @@ def _call_claude(
                 logger.warning("Rate limited by API, retrying in %ds (attempt %d/%d)", wait, attempt + 1, max_retries)
                 time.sleep(wait)
             else:
-                raise
+                raise AnalysisError(
+                    f"Claude API rate limit still exceeded after {max_retries} attempts. "
+                    "Wait a minute and re-run, or lower --fps / --detail to send fewer frames."
+                )
+        except anthropic.APIConnectionError as e:
+            raise AnalysisError(f"Could not reach the Claude API: {e}") from e
+        except anthropic.APIStatusError as e:
+            raise AnalysisError(f"Claude API error ({e.status_code}): {e}") from e
     return "", UsageTotals(model=model)
 
 
