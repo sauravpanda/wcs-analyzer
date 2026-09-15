@@ -227,8 +227,11 @@ Writes `phrase_map.json` and a `song_map.svg` (energy, novelty, 8-count ticks, e
 labelled with the counts of the section that ends there) you can check by ear. With `--judge`,
 one model call reviews a short frame burst around every change and records whether the
 couple acknowledged it, how, and whether it was on time; the verdicts replace the phrase table
-in an existing `coach.json` (the previous file is kept as a backup). `coach` runs the same
-analysis itself, so new coaching reports are judged on these boundaries from the start.
+in an existing `coach.json` (the previous file is kept as a backup). Two decoy windows per song,
+count 1 of an 8 that is not a phrase change and presented identically, measure the judge's
+false-positive rate; read the acknowledgment rate net of the decoy rate stored under
+`phrase_judge_calibration`. `coach` runs the same audio analysis itself, so new coaching reports
+are judged on these boundaries from the start.
 
 ### `compare` — Compare multiple analyses
 

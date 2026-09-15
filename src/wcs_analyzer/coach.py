@@ -19,8 +19,10 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import random
 import shutil
 import tempfile
+import zlib
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
@@ -202,16 +204,37 @@ def _parse_phrase_judgments(data: dict, bounds: list[PhraseBoundary]) -> list[di
     return out
 
 
+DECOY_WINDOWS = 2
+
+
+def decoy_times(pm: PhraseMap, bounds: list[PhraseBoundary], duration: float, *, n: int = DECOY_WINDOWS,
+                window: float = 3.0, seed: int = 0) -> list[float]:
+    """Count-1-of-an-8 moments that are NOT phrase changes, to measure the judge's false-positive rate.
+
+    Picked from the 8-count grid at least four seconds from every real boundary and clear of
+    the clip ends; deterministic for a given seed so a re-run judges the same decoys.
+    """
+    real = [b.time for b in bounds]
+    cands = [t for t in pm.eights if window < t < duration - window and all(abs(t - r) >= 4.0 for r in real)]
+    rng = random.Random(seed)
+    rng.shuffle(cands)
+    return sorted(cands[:n])
+
+
 def judge_phrases(
     video_path: Path, out_dir: Path, *, model: str = DEFAULT_COACH_MODEL, fps: float = 4.0, window: float = 3.0,
     max_dimension: int = 768, dancers: str | None = None, progress: Progress | None = None,
+    decoys: int = DECOY_WINDOWS,
 ) -> dict:
     """Second-opinion pass on phrase acknowledgment against the structure-analysis boundaries.
 
-    Runs the audio analysis, extracts a short burst around every boundary, asks the model
-    once for all of them, and writes the verdicts into out_dir/coach.json (backing the
-    previous file up as coach.json.prejudge.bak) plus phrase_map.json and song_map.svg.
-    Returns {"phrases": judged list, "usage": UsageTotals, "phrase_map": PhraseMap}.
+    Runs the audio analysis, extracts a short burst around every boundary, mixes in a few
+    decoy windows (count 1 of an 8 that is not a phrase change, presented identically) so the
+    judge's false-positive rate is measured on every song, asks the model once for all of
+    them, and writes the verdicts into out_dir/coach.json (backing the previous file up as
+    coach.json.prejudge.bak) plus phrase_map.json and song_map.svg.
+    Returns {"phrases": judged real boundaries, "decoys": judged decoys, "usage": UsageTotals,
+    "phrase_map": PhraseMap}.
     """
     say: Progress = progress or (lambda msg: logger.info(msg))
     claude_path = _check_claude_cli()
@@ -235,11 +258,16 @@ def judge_phrases(
     focus_context = f"An earlier review of this clip identified the couple as: {focus_desc}\n" if focus_desc else ""
 
     bounds = [b for b in pm.boundaries if b.time + 0.5 < duration]
-    bursts: list[PhraseBoundary] = []
+    seed = zlib.crc32(video_path.name.encode())
+    fakes = [PhraseBoundary(time=t, beat=0, counts=16, kind="regular", confidence=0.0)
+             for t in decoy_times(pm, bounds, duration, n=decoys, window=window, seed=seed)] if decoys else []
+    # Real boundaries and decoys are presented identically, in time order; only we know which is which.
+    windows = sorted([(b, False) for b in bounds] + [(f, True) for f in fakes], key=lambda w: w[0].time)
+    bursts: list[tuple[PhraseBoundary, bool]] = []
     with tempfile.TemporaryDirectory(prefix="wcs_phrase_") as tmp:
         lines: list[str] = []
         n_frames = 0
-        for k, b in enumerate(bounds, 1):
+        for k, (b, is_decoy) in enumerate(windows, 1):
             start, end = max(0.0, b.time - window), min(duration, b.time + window)
             fr = extract_frames_between(video_path, start, end, fps=fps, max_dimension=max_dimension)
             if not fr.images:
@@ -247,9 +275,9 @@ def judge_phrases(
             paths = _write_frames(Path(tmp), fr.images, prefix=f"p{k:02d}")
             n_frames += len(paths)
             what = "first phrase starts" if b.kind == "start" else f"{b.counts} counts end here; {b.kind}"
-            lines.append(f"Phrase change {k} at {b.time:.1f}s ({what}):\n" + _frame_list(paths, fr.timestamps))
-            bursts.append(b)
-        if not bursts:
+            lines.append(f"Window {k} at {b.time:.1f}s ({what}):\n" + _frame_list(paths, fr.timestamps))
+            bursts.append((b, is_decoy))
+        if not any(not d for _, d in bursts):
             raise AnalysisError("No frames could be extracted around the phrase changes.")
         prompt = COACH_PHRASE_JUDGE_PROMPT.format(
             dancer_context=dancer_context, focus_context=focus_context, n_bounds=len(bursts), fps=fps,
@@ -257,29 +285,43 @@ def judge_phrases(
             eights=", ".join(fmt_time(t) for t in pm.eights[:4]),
         )
         timeout, max_turns = _cli_budget(n_frames)
-        say(f"Judging {len(bursts)} phrase changes from {n_frames} frames through {model} (budget {timeout // 60} min)...")
+        n_real = sum(1 for _, d in bursts if not d)
+        say(f"Judging {n_real} phrase changes and {len(bursts) - n_real} decoy windows from {n_frames} frames "
+            f"through {model} (budget {timeout // 60} min)...")
         data, usage = _call_claude_cli(claude_path, prompt, timeout=timeout, max_turns=max_turns, model=model)
 
-    judged = _parse_phrase_judgments(data, bursts)
+    all_judged = _parse_phrase_judgments(data, [b for b, _ in bursts])
+    judged = [j for j, (_, d) in zip(all_judged, bursts) if not d]
+    decoy_judged = [j for j, (_, d) in zip(all_judged, bursts) if d]
+    for j in decoy_judged:
+        j["decoy"] = True
+    calibration = {
+        "real": len(judged), "real_hit": sum(1 for j in judged if j["acknowledged"]),
+        "decoys": len(decoy_judged), "decoys_hit": sum(1 for j in decoy_judged if j["acknowledged"]),
+    }
     if coach_path.exists():
         backup = out_dir / "coach.json.prejudge.bak"
         if not backup.exists():
             shutil.copy(coach_path, backup)
         existing["phrases"] = judged
+        existing["phrase_decoys"] = decoy_judged
+        existing["phrase_judge_calibration"] = calibration
         music = existing.setdefault("music", {})
         d = pm.to_dict()
         music.update(
             bpm=round(audio.bpm, 1), music_start=round(audio.beat_times[0], 2),
-            phrase_starts=[round(b.time, 2) for b in bursts], method="structure-v2+judge",
+            phrase_starts=[round(j["time"], 2) for j in judged], method="structure-v2+judge",
             phrase_map={k: d[k] for k in ("phase", "eights", "boundaries", "method")},
         )
-        existing.setdefault("warnings", []).append(
-            f"Phrase changes re-judged on {date.today().isoformat()} against the structure analysis "
-            f"({len(judged)} boundaries, ${usage.estimated_cost:.2f})."
-        )
+        note = (f"Phrase changes re-judged on {date.today().isoformat()} against the structure analysis "
+                f"({calibration['real_hit']} of {calibration['real']} acknowledged, ${usage.estimated_cost:.2f}).")
+        if calibration["decoys"]:
+            note += (f" Calibration: the judge credited {calibration['decoys_hit']} of {calibration['decoys']} decoy "
+                     f"windows that were not phrase changes.")
+        existing.setdefault("warnings", []).append(note)
         existing["phrase_judge_usage"] = asdict(usage)
         coach_path.write_text(json.dumps(existing, indent=1))
-    return {"phrases": judged, "usage": usage, "phrase_map": pm}
+    return {"phrases": judged, "decoys": decoy_judged, "calibration": calibration, "usage": usage, "phrase_map": pm}
 
 
 def _music_context(audio: AudioFeatures | None, phrase_starts: list[float], phrase_map: PhraseMap | None = None) -> str:
