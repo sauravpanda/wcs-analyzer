@@ -437,6 +437,7 @@ def test_failed_segments_excluded_from_average():
     good = SegmentAnalysis(
         start_time=0.0, end_time=4.0,
         timing_score=8.0, technique_score=8.0, teamwork_score=8.0, presentation_score=8.0,
+        patterns=["whip"], lead_technique=8.0, follow_technique=8.0,
         raw_data={"timing": {"score": 8}},
     )
     bad = _failed_segment(4.0, 8.0)
@@ -471,7 +472,69 @@ def test_failed_summary_falls_back_to_clean_segment_average():
 
 
 def test_clean_run_has_no_warnings():
-    seg = SegmentAnalysis(start_time=0.0, end_time=4.0, timing_score=7.0, raw_data={"timing": {"score": 7}})
+    seg = SegmentAnalysis(
+        start_time=0.0, end_time=4.0, timing_score=7.0, raw_data={"timing": {"score": 7}},
+        patterns=["sugar push"], lead_technique=6.0, follow_technique=6.5,
+    )
     scores = compute_final_scores([seg])
     assert scores.parse_failures == 0
     assert scores.warnings == []
+
+
+def test_partial_response_is_flagged():
+    """Scores with no patterns and no partner scores means the model answered partially."""
+    seg = SegmentAnalysis(
+        start_time=0.0, end_time=90.0, is_summary=True, timing_score=5.5,
+        raw_data={"timing": {"score": 5.5}, "technique": {"score": 5}},
+    )
+    scores = compute_final_scores([seg])
+    assert scores.parse_failures == 0
+    assert any("partial" in w for w in scores.warnings)
+
+
+def test_segment_without_raw_data_is_not_called_partial():
+    # Hand-built segments (tests, legacy caches) carry no raw response; do not warn on them.
+    scores = compute_final_scores([SegmentAnalysis(start_time=0.0, end_time=4.0, timing_score=7.0)])
+    assert scores.warnings == []
+
+
+def test_single_segment_impression_is_kept():
+    """Gemini / claude-code return one whole-video segment; its impression must surface."""
+    seg = SegmentAnalysis(
+        start_time=0.0, end_time=90.0, is_summary=True,
+        timing_score=6.0, technique_score=6.0, teamwork_score=6.0, presentation_score=6.0,
+        raw_data={"timing": {"score": 6}, "overall_impression": "Clean, musical, slightly rushed anchors."},
+    )
+    scores = compute_final_scores([seg])
+    assert scores.overall_impression == "Clean, musical, slightly rushed anchors."
+
+
+def test_summary_impression_still_preferred():
+    seg = SegmentAnalysis(start_time=0.0, end_time=4.0, raw_data={"overall_impression": "segment view"})
+    summary = SegmentAnalysis(start_time=0.0, end_time=8.0, is_summary=True,
+                              raw_data={"overall_impression": "whole-dance view"})
+    scores = compute_final_scores([seg, summary])
+    assert scores.overall_impression == "whole-dance view"
+
+
+def test_single_segment_partner_notes_are_kept():
+    """Whole-video providers have no summary; their lead/follow notes must still surface."""
+    seg = SegmentAnalysis(
+        start_time=0.0, end_time=90.0, is_summary=True,
+        lead_technique=5.0, lead_presentation=5.5, lead_notes="Forward lean on anchors.",
+        follow_technique=6.0, follow_presentation=6.5, follow_notes="Clean spins.",
+        patterns=["whip"], raw_data={"timing": {"score": 6}},
+    )
+    scores = compute_final_scores([seg])
+    assert scores.lead_notes == "Forward lean on anchors."
+    assert scores.follow_notes == "Clean spins."
+
+
+def test_multi_segment_without_summary_has_no_partner_notes():
+    segs = [
+        SegmentAnalysis(start_time=0.0, end_time=4.0, lead_technique=5.0, lead_notes="a", follow_technique=6.0),
+        SegmentAnalysis(start_time=4.0, end_time=8.0, lead_technique=7.0, lead_notes="b", follow_technique=6.0),
+    ]
+    scores = compute_final_scores(segs)
+    assert scores.lead_technique == 6.0
+    assert scores.lead_notes == ""

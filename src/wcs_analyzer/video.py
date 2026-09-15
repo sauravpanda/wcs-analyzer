@@ -212,3 +212,60 @@ def group_frames_by_phrase(
         phrase_idx += 1
 
     return phrases
+
+
+def extract_frames_between(
+    video_path: Path, start: float, end: float, fps: float = 10.0, max_dimension: int = 768,
+) -> FrameData:
+    """Extract frames from the window [start, end] seconds at `fps`.
+
+    Used by coach mode's zoom pass to look at a flagged moment at a rate
+    high enough to see individual counts (10 fps at 120 BPM is five frames
+    per beat), without paying for the whole clip at that rate.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise VideoProcessingError(f"Cannot open video: {video_path}")
+
+    original_fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = total_frames / original_fps if original_fps > 0 else 0.0
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    data = FrameData(fps_original=original_fps, fps_sampled=fps, duration=duration, width=width, height=height)
+    if original_fps <= 0:
+        cap.release()
+        return data
+
+    start = max(0.0, start)
+    if duration:
+        end = min(end, duration)
+    if end <= start:
+        cap.release()
+        return data
+
+    interval = max(1, int(round(original_fps / fps)))
+    start_frame = int(start * original_fps)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    scale = min(max_dimension / max(width, 1), max_dimension / max(height, 1), 1.0)
+    new_w, new_h = max(1, int(width * scale)), max(1, int(height * scale))
+
+    idx = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        t = (start_frame + idx) / original_fps
+        if t > end:
+            break
+        if idx % interval == 0:
+            if scale < 1.0:
+                frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+            _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            data.images.append(base64.b64encode(buffer.tobytes()).decode("utf-8"))
+            data.timestamps.append(t)
+        idx += 1
+
+    cap.release()
+    logger.debug("Extracted %d burst frames from %s (%.1f-%.1fs at %.1f fps)", len(data.images), video_path.name, start, end, fps)
+    return data

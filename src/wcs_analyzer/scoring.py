@@ -209,6 +209,19 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
             "The whole-video summary could not be parsed; scores are averaged from the "
             "per-segment results instead."
         )
+    # A response can parse cleanly yet omit whole sections. Scores alone
+    # with no patterns and no partner scores is a partial answer, not a
+    # judgment that nothing happened; say so instead of showing blanks.
+    partial = [
+        s for s in clean_segments
+        if s.raw_data and not s.patterns and not s.pattern_timeline
+        and s.lead_technique == 0 and s.follow_technique == 0
+    ]
+    if partial:
+        warning_msgs.append(
+            f"{len(partial)} of {len(clean_segments)} model responses omitted the pattern list "
+            "and partner scores (a partial answer). Re-running usually gives a complete report."
+        )
     parse_failures = len(failed_segments) + (1 if summary_failed else 0)
 
     # Use summary scores if available, otherwise average
@@ -343,7 +356,16 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
     else:
         strengths = _collect_top(scoring_segments, "highlights", 3)
         improvements = _collect_top(scoring_segments, "improvements", 3)
-        impression = ""
+        # Whole-video providers (Gemini, claude-code) return one segment and
+        # no separate summary; their impression lives on that segment.
+        impression = next(
+            (
+                str(seg.raw_data.get("overall_impression") or "")
+                for seg in reversed(clean_segments)
+                if seg.raw_data.get("overall_impression")
+            ),
+            "",
+        )
         reasoning_final = {}
 
     if not reasoning_final:
@@ -368,8 +390,11 @@ def compute_final_scores(segments: list[SegmentAnalysis]) -> FinalScores:
             lead_pres = sum(s.lead_presentation for s in segs_with_partner) / n_p
             follow_tech = sum(s.follow_technique for s in segs_with_partner) / n_p
             follow_pres = sum(s.follow_presentation for s in segs_with_partner) / n_p
-            lead_notes_str = ""
-            follow_notes_str = ""
+            # A single whole-video segment (Gemini, claude-code) carries the
+            # only partner notes there are; keep them. Several phrase-level
+            # segments have no single note to show without a summary.
+            lead_notes_str = segs_with_partner[-1].lead_notes if n_p == 1 else ""
+            follow_notes_str = segs_with_partner[-1].follow_notes if n_p == 1 else ""
         else:
             lead_tech = lead_pres = follow_tech = follow_pres = 0.0
             lead_notes_str = follow_notes_str = ""

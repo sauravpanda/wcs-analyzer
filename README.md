@@ -175,6 +175,53 @@ wcs-analyzer timing video.mp4 --provider claude
 wcs-analyzer timing video.mp4 --provider claude-code
 ```
 
+### `coach` — Judge-style coaching notes
+
+The scoring commands answer "how good was it?". `coach` answers "what would a judge write in
+the margin?" and is modelled on the way an experienced dancer reviews a friend's video:
+
+```bash
+wcs-analyzer coach clip.mp4 --dancers "lead wearing bib 42" --division intermediate
+```
+
+Two passes through the local Claude Code CLI (Opus 5 by default):
+
+1. **Survey** of the whole clip at 3 fps, with tempo, music start, the 8-count grid and the
+   song's real phrase changes from the audio track (see `phrases` below). Produces a focus
+   check (which couple the model followed, and how confident it is), an overall impression,
+   two to four themes a judge would notice, a note every few seconds with a strip of frames,
+   and a phrase-acknowledgment table.
+2. **Zoom** on the flagged moments: short bursts re-extracted at 10 fps, with the beats inside
+   each window, for count-by-count footwork and connection notes.
+
+Output is a folder `<clip>_coach/` with `coach_report.html` (self-contained, images inline),
+`coach_report.md`, the frame strips, and `coach.json`. Options: `--fps` (survey rate),
+`--zoom/--no-zoom`, `--zoom-moments`, `--zoom-fps`, `--hd`, `--model`.
+
+Expect roughly 10 to 25 minutes and a few dollars of Claude usage per clip; the zoom pass
+is most of it. If the focus confidence is low, check the strips before acting on any note.
+
+### `phrases` — Where the music actually changes
+
+Competition songs are not built from perfect 32-count phrases: there are intros, 16- and
+48-count sections, breaks and drops. `phrases` finds the structure from the audio alone:
+beat-synchronous harmony and timbre features, a self-similarity novelty curve, energy
+changes, then the 8-count grid and a dynamic programme that prefers 32- and 16-count
+sections but breaks the pattern when the music does. Beat trackers often land an octave
+off on swing music; tempos outside the danced 72–150 bpm band are folded back and re-tracked.
+
+```bash
+wcs-analyzer phrases clip.mp4 -o clip_coach            # audio only, no model call
+wcs-analyzer phrases clip.mp4 -o clip_coach --judge --dancers "lead wearing bib 42"
+```
+
+Writes `phrase_map.json` and a `song_map.svg` (energy, novelty, 8-count ticks, each boundary
+labelled with the counts of the section that ends there) you can check by ear. With `--judge`,
+one model call reviews a short frame burst around every change and records whether the
+couple acknowledged it, how, and whether it was on time; the verdicts replace the phrase table
+in an existing `coach.json` (the previous file is kept as a backup). `coach` runs the same
+analysis itself, so new coaching reports are judged on these boundaries from the start.
+
 ### `compare` — Compare multiple analyses
 
 Compare scores across multiple JSON reports to track progress:

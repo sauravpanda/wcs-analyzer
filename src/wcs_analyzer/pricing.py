@@ -30,7 +30,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-PRICING_UPDATED_ON = "2026-04-15"
+PRICING_UPDATED_ON = "2026-09-08"
 
 
 # Gemini 3.x uses tiered pricing above 200k tokens (input $4/M, output $18/M).
@@ -64,6 +64,11 @@ _DEFAULT_PRICING: dict[str, ModelPricing] = {
     "gemini-2.5-pro": ModelPricing(1.25, 10.00),
     "gemini-1.5-flash": ModelPricing(0.075, 0.30),
     "gemini-1.5-pro": ModelPricing(1.25, 5.00),
+    # Anthropic Claude 5 family
+    "claude-fable-5-1": ModelPricing(10.00, 50.00),
+    "claude-opus-5": ModelPricing(5.00, 25.00),
+    "claude-sonnet-5": ModelPricing(2.00, 10.00),
+    "claude-haiku-4-5": ModelPricing(1.00, 5.00),
     # Anthropic Claude (4.x generation)
     "claude-opus-4-6": ModelPricing(15.00, 75.00),
     "claude-sonnet-4-6": ModelPricing(3.00, 15.00),
