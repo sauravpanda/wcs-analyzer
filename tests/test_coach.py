@@ -296,15 +296,21 @@ class TestJudgePhrases:
         assert judged[0]["acknowledged"] is True and judged[1]["acknowledged"] is False
         assert judged[2]["acknowledged"] is None and "Not returned" in judged[2]["how"]   # model skipped it
         assert judged[1]["counts"] == 32 and judged[1]["kind"] == "section" and judged[1]["response"] == "none"
+        # two decoy windows on the 8-count grid, away from the real boundaries, presented the same way
+        decoys = result["decoys"]
+        assert len(decoys) == 2 and all(d["decoy"] for d in decoys)
+        assert all(min(abs(d["time"] - t) for t in (2.5, 18.5, 34.5)) >= 4.0 for d in decoys)
+        assert result["calibration"] == {"real": 3, "real_hit": 1, "decoys": 2, "decoys_hit": 0}
         prompt = cli.call_args[0][1]
-        assert "Phrase change 2 at 18.5s (32 counts end here; section)" in prompt
-        assert "lead in white shirt" in prompt and "bib 42" in prompt and "p02_000.jpg" in prompt
+        assert "at 18.5s (32 counts end here; section)" in prompt and prompt.count("Window ") == 5
+        assert "lead in white shirt" in prompt and "bib 42" in prompt and "p01_000.jpg" in prompt
         saved = json.loads((out / "coach.json").read_text())
         assert saved["music"]["method"] == "structure-v2+judge"
         assert saved["music"]["phrase_starts"] == [2.5, 18.5, 34.5]
-        assert saved["phrases"][0]["acknowledged"] is True
+        assert saved["phrases"][0]["acknowledged"] is True and len(saved["phrase_decoys"]) == 2
+        assert saved["phrase_judge_calibration"]["decoys"] == 2
         assert saved["phrase_judge_usage"]["estimated_cost"] == 1.25
-        assert any("re-judged" in w for w in saved["warnings"])
+        assert any("re-judged" in w and "decoy" in w for w in saved["warnings"])
         assert (out / "coach.json.prejudge.bak").exists()
         assert (out / "song_map.svg").exists() and (out / "phrase_map.json").exists()
         # the backup still holds the old verdict

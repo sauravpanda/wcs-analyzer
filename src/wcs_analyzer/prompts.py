@@ -426,17 +426,21 @@ Only output valid JSON, no other text.\
 COACH_PHRASE_JUDGE_PROMPT = """\
 Phrase-change check for one West Coast Swing dance.
 
-{dancer_context}{focus_context}The audio analysis found {n_bounds} phrase changes in the music. For each one you get a burst \
-of frames at {fps:g} fps from {window:.0f}s before the change to {window:.0f}s after it (consecutive frames \
-{gap:.2f}s apart). Read every file, in order, burst by burst:
+{dancer_context}{focus_context}Below are {n_bounds} moments in the song, most of them phrase changes found in the audio. For \
+each one you get a burst of frames at {fps:g} fps from {window:.0f}s before the moment to {window:.0f}s after it \
+(consecutive frames {gap:.2f}s apart). Read every file, in order, burst by burst:
 {burst_list}
 
 MUSIC: tempo {bpm:.0f} BPM. Count 1 of each 8 falls at {eights}, ... (every 8 beats).
 
-For each phrase change decide whether THIS couple acknowledged it: a hit, a stop or hold, a clear \
-change of level, size, speed or direction, a release, a styling accent, or a pattern deliberately \
-finishing on the change. A pattern simply continuing through the change is not an acknowledgment. \
-Judge the timing too: a response within about one beat either side counts as on the change; say \
+For each window decide whether THIS couple made a deliberate musical choice that a judge scanning the \
+floor would notice, landing within about one beat of the listed time and standing out from the six \
+seconds around it: a hit or accent on the beat, a stop or hold of at least two counts, a clear level \
+change (dip, lunge, knee drop), a release-and-retake, a styling accent, or a sharp change of direction \
+or speed. Do NOT count a pattern simply ending or starting (patterns end every six or eight counts), an \
+ordinary turn, the slot getting a little longer or shorter, or the normal rise and fall of walking. \
+Be strict: some of the windows listed are not phrase changes at all, and at many windows nothing \
+deliberate happens; say so. Judge the timing too: within about one beat counts as on the change; say \
 when it is early or late and by roughly how many beats. If the couple is hidden or out of frame in a \
 burst, say so instead of guessing.
 
@@ -444,14 +448,14 @@ Respond with ONLY valid JSON in exactly this shape:
 {{
   "focus_confirmed": <true|false>,
   "phrases": [
-    {{"time": <seconds of the phrase change, exactly as listed>, "acknowledged": <true|false>,
+    {{"time": <seconds of the window, exactly as listed>, "acknowledged": <true|false>,
       "how": "<what you saw, one or two sentences with timestamps>",
-      "response": "<hit|stop|level|size|speed|direction|release|styling|pattern-end|none>",
+      "response": "<hit|stop|level|release|styling|direction|speed|none>",
       "timing": "<on|early|late|none>", "offset_beats": <number, positive when late, 0 when on or none>,
       "confidence": <0-1>, "visibility": "<clear|partly blocked|blocked>"}}
   ]
 }}
-List every phrase change exactly once, in the order given. Only output valid JSON, no other text.\
+List every window exactly once, in the order given. Only output valid JSON, no other text.\
 """
 
 COACH_ZOOM_PROMPT = """\
