@@ -110,6 +110,33 @@ IMPORTANT: If the video contains multiple couples or bystanders, focus \
 ONLY on the specified dancers. Ignore all other people in the frame.\
 """
 
+# Canonical pattern names. Providers are asked to use these verbatim so
+# pattern counts and timelines are comparable across runs and providers.
+WCS_PATTERN_VOCABULARY = [
+    "sugar push",
+    "left side pass",
+    "right side pass",
+    "underarm turn",
+    "inside turn",
+    "tuck turn",
+    "whip",
+    "basket whip",
+    "reverse whip",
+    "apache whip",
+    "free spin",
+    "starter step",
+    "basic in closed position",
+    "anchor variation",
+]
+
+PATTERN_VOCABULARY_INSTRUCTION = (
+    "Name patterns using ONLY these canonical names, exactly as written: "
+    + ", ".join(WCS_PATTERN_VOCABULARY)
+    + ". If a figure is a variation, use the closest canonical name and describe the "
+    "variation in notes. If it is genuinely none of these, use 'other: <short name>'. "
+    "Never put timestamps, counts, or commentary inside a pattern name."
+)
+
 DANCER_CONTEXT_TEMPLATE = """\
 DANCER IDENTIFICATION: {dancer_description}
 Focus your analysis ONLY on these dancers. There may be other people \
@@ -345,5 +372,112 @@ in this exact JSON format:
   }}
 }}
 
+Only output valid JSON, no other text.\
+"""
+
+
+COACH_SURVEY_PROMPT = """\
+You are reviewing a West Coast Swing dance the way an experienced judge writes notes for a \
+dancer they coach: specific, causal, kind, and honest. Reference timestamps in seconds. Where \
+the couple is blocked or out of frame, say so instead of guessing.
+
+{dancer_context}{division_context}{music_context}
+FRAMES: {n_frames} stills from a {duration:.0f}s clip at {fps:g} frames per second \
+(consecutive frames are {gap:.2f}s apart). Read every file; each is listed with its timestamp:
+{frame_list}
+
+FIRST confirm which couple you are following: describe them (clothing, bib, position on the \
+floor) and how confident you are that this is the couple described above. If you cannot find \
+them, say so rather than reviewing someone else.
+
+THEN write the review:
+1. overall_impression: two to four sentences on what this dancer does well, then the single \
+most important thing to work on.
+2. themes: two to four high-level themes that would jump out to a judge at this dancer's \
+level. Each theme lists the timestamps that show it.
+3. notes: a note roughly every 3-8 seconds wherever something could be refined OR something is \
+worth keeping ("cool sweep, keep that"). Each note gives the time, what you saw, the counts of \
+the pattern when you can tell (e.g. "count 3 lands far outside the slot, so 4 lands back and \
+5&6 gets fast"), and what to do instead. Prefer causal chains over lists of adjectives. Watch \
+for: the lead's drive down the slot on count 1, connection height jumping high-to-low, looking \
+down, re-establishing the anchor before the next lead, whether the follower was ready, and \
+musical phrasing.
+4. phrases: for each phrase change listed above, did the couple acknowledge it (a hit, a \
+pause, a change of energy) within about a second? Say yes or no and what you saw.
+5. moments_to_zoom: up to {max_zoom} moments (in seconds) where a slow-motion, count-by-count \
+look would add the most: footwork timing, a lost triple, a connection break. Prefer moments \
+that recur.
+
+{vocab_instruction}
+
+Respond with ONLY valid JSON in exactly this shape:
+{{
+  "focus": {{"identified": <true|false>, "description": "<who you followed>", "confidence": <0-1>, "occluded": ["<m:ss-m:ss>"]}},
+  "overall_impression": {{"doing_well": ["<...>", "<...>"], "work_on": "<...>", "summary": "<2-4 sentences>"}},
+  "themes": [{{"title": "<short>", "detail": "<why a judge at this level cares and what to change>", "examples": [<seconds>, <seconds>]}}],
+  "notes": [{{"time": <seconds>, "end_time": <seconds or null>, "kind": "<refine|keep|question>", "counts": "<e.g. 3-4 of pattern, or empty>", "note": "<what you saw and what to do>"}}],
+  "phrases": [{{"time": <seconds>, "acknowledged": <true|false>, "how": "<what you saw>"}}],
+  "moments_to_zoom": [{{"time": <seconds>, "reason": "<why>"}}],
+  "patterns_identified": ["<pattern name only>"]
+}}
+Only output valid JSON, no other text.\
+"""
+
+COACH_PHRASE_JUDGE_PROMPT = """\
+Phrase-change check for one West Coast Swing dance.
+
+{dancer_context}{focus_context}The audio analysis found {n_bounds} phrase changes in the music. For each one you get a burst \
+of frames at {fps:g} fps from {window:.0f}s before the change to {window:.0f}s after it (consecutive frames \
+{gap:.2f}s apart). Read every file, in order, burst by burst:
+{burst_list}
+
+MUSIC: tempo {bpm:.0f} BPM. Count 1 of each 8 falls at {eights}, ... (every 8 beats).
+
+For each phrase change decide whether THIS couple acknowledged it: a hit, a stop or hold, a clear \
+change of level, size, speed or direction, a release, a styling accent, or a pattern deliberately \
+finishing on the change. A pattern simply continuing through the change is not an acknowledgment. \
+Judge the timing too: a response within about one beat either side counts as on the change; say \
+when it is early or late and by roughly how many beats. If the couple is hidden or out of frame in a \
+burst, say so instead of guessing.
+
+Respond with ONLY valid JSON in exactly this shape:
+{{
+  "focus_confirmed": <true|false>,
+  "phrases": [
+    {{"time": <seconds of the phrase change, exactly as listed>, "acknowledged": <true|false>,
+      "how": "<what you saw, one or two sentences with timestamps>",
+      "response": "<hit|stop|level|size|speed|direction|release|styling|pattern-end|none>",
+      "timing": "<on|early|late|none>", "offset_beats": <number, positive when late, 0 when on or none>,
+      "confidence": <0-1>, "visibility": "<clear|partly blocked|blocked>"}}
+  ]
+}}
+List every phrase change exactly once, in the order given. Only output valid JSON, no other text.\
+"""
+
+COACH_ZOOM_PROMPT = """\
+Slow-motion review of one moment from a West Coast Swing dance, count by count.
+
+{dancer_context}Window: {start:.1f}s to {end:.1f}s, {n_frames} frames at {fps:g} fps \
+(consecutive frames {gap:.2f}s apart). Read every file in order:
+{frame_list}
+
+{beat_context}
+What the full-speed review said about this moment: "{survey_note}"
+
+Work through the window beat by beat. For each beat you can see: which foot the LEAD steps \
+with, where it lands relative to the slot and the body (under the hips, far outside, crossed), \
+whether the foot rolls through or lands flat, where the connection hand is (high, mid, low) and \
+whether it moves abruptly, and whether the follower looks ready for the lead. Then explain the \
+cascade (what caused what) and give one concrete fix. If you cannot tell which beat is count 1, \
+say so and number the beats from the first one in the window.
+
+Respond with ONLY valid JSON in exactly this shape:
+{{
+  "count_notes": [{{"time": <seconds>, "count": "<1..8 or ?>", "observation": "<one sentence>"}}],
+  "diagnosis": "<the causal chain in one to three sentences>",
+  "fix": "<one concrete thing to practice>",
+  "confidence": <0-1>,
+  "visibility": "<clear|partly blocked|blocked>"
+}}
 Only output valid JSON, no other text.\
 """

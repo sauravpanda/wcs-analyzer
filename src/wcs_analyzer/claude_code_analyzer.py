@@ -10,7 +10,7 @@ from pathlib import Path
 from .analyzer import parse_segment_data
 from .exceptions import AnalysisError
 from .pricing import UsageTotals
-from .prompts import DANCER_CONTEXT_TEMPLATE, SYSTEM_PROMPT
+from .prompts import DANCER_CONTEXT_TEMPLATE, PATTERN_VOCABULARY_INSTRUCTION, SYSTEM_PROMPT
 from .scoring import SegmentAnalysis
 from .video import extract_frames
 
@@ -87,6 +87,22 @@ _ANALYSIS_SCHEMA = json.dumps({
 })
 
 
+# CLI budget. Measured ~2.1 s per frame end-to-end on a 117-frame clip; the
+# CLI reads every frame as a separate image, so a fixed 300 s / 25-turn cap
+# fails on anything longer than about a minute at 2 fps.
+_CLI_BASE_TIMEOUT_S = 180
+_CLI_SECONDS_PER_FRAME = 3.0
+_CLI_MIN_TURNS = 25
+_CLI_FRAMES_PER_TURN = 5
+
+
+def _cli_budget(n_frames: int) -> tuple[int, int]:
+    """Return (timeout_seconds, max_turns) for a run over `n_frames` images."""
+    timeout = int(_CLI_BASE_TIMEOUT_S + _CLI_SECONDS_PER_FRAME * n_frames)
+    max_turns = max(_CLI_MIN_TURNS, n_frames // _CLI_FRAMES_PER_TURN + 10)
+    return timeout, max_turns
+
+
 def _check_claude_cli() -> str:
     """Check that the claude CLI is installed and return its path."""
     path = shutil.which("claude")
@@ -104,6 +120,7 @@ def analyze_dance_claude_code(
     dancers: str | None = None,
     fps: float = 3.0,
     max_dimension: int = 768,
+    model: str | None = None,
 ) -> list[SegmentAnalysis]:
     """Analyze a dance video using the Claude Code CLI.
 
@@ -121,6 +138,9 @@ def analyze_dance_claude_code(
         max_dimension: Max width/height in pixels for extracted frames.
             768 is the token-efficient default; 1080 (`--hd`) gives the
             model more detail at higher cost.
+        model: Model id passed to the CLI via --model. None leaves the
+            choice to the user's Claude Code default, which may be a far
+            more expensive model than the one the report labels.
 
     Returns:
         List containing a single SegmentAnalysis.
@@ -171,6 +191,11 @@ def analyze_dance_claude_code(
             f"Read each of these image files and analyze the dance. Each frame is listed with "
             f"its timestamp; when you cite a moment, use the timestamp in seconds:\n{frame_list}\n\n"
             f"After viewing all frames, provide your WSDC-style scoring analysis as JSON.\n\n"
+            f"For `pattern_timeline`, walk through the clip chronologically and give contiguous "
+            f"time windows (start_time/end_time in seconds) naming the pattern(s) in each window. "
+            f"Keep `patterns_identified` to plain pattern names with no timestamps or notes; put "
+            f"timestamps only in `pattern_timeline`, `off_beat_moments`, `highlights` and notes. "
+            f"{PATTERN_VOCABULARY_INSTRUCTION}\n\n"
             f"You MUST respond with ONLY valid JSON in this exact format:\n"
             f'{{"timing": {{"score": <1-10>, "off_beat_moments": [], "notes": "..."}}, '
             f'"technique": {{"score": <1-10>, "posture": {{"score": <1-10>, "notes": "..."}}, '
@@ -178,29 +203,44 @@ def analyze_dance_claude_code(
             f'"slot": {{"score": <1-10>, "notes": "..."}}, "notes": "..."}}, '
             f'"teamwork": {{"score": <1-10>, "notes": "..."}}, '
             f'"presentation": {{"score": <1-10>, "notes": "..."}}, '
-            f'"patterns_identified": ["..."], "highlights": ["..."], "improvements": ["..."], '
+            f'"patterns_identified": ["<pattern name only>"], '
+            f'"pattern_timeline": [{{"start_time": <seconds>, "end_time": <seconds>, '
+            f'"patterns": ["<pattern name>"], "quality": "<strong|solid|needs_work|weak>", '
+            f'"timing": "<on_beat|slightly_off|off_beat>", "notes": "..."}}], '
+            f'"highlights": ["..."], "improvements": ["..."], '
             f'"lead": {{"technique_score": <1-10>, "presentation_score": <1-10>, "notes": "..."}}, '
             f'"follow": {{"technique_score": <1-10>, "presentation_score": <1-10>, "notes": "..."}}, '
             f'"overall_impression": "..."}}\n\n'
             f"Only output valid JSON, no other text."
         )
 
-        # Call claude CLI
-        logger.info("Invoking Claude Code CLI...")
-        result, usage = _call_claude_cli(claude_path, prompt)
+        # Call claude CLI with a time/turn budget sized to the frame count
+        timeout, max_turns = _cli_budget(len(frame_paths))
+        logger.info(
+            "Invoking Claude Code CLI (%d frames, timeout %ds, max %d turns)...",
+            len(frame_paths), timeout, max_turns,
+        )
+        result, usage = _call_claude_cli(
+            claude_path, prompt, timeout=timeout, max_turns=max_turns, model=model,
+        )
 
     return [_parse_response(result, frames.duration, usage)]
 
 
-def _call_claude_cli(claude_path: str, prompt: str, timeout: int = 300) -> tuple[dict, UsageTotals]:
+def _call_claude_cli(
+    claude_path: str, prompt: str, timeout: int = 300, max_turns: int = _CLI_MIN_TURNS,
+    model: str | None = None,
+) -> tuple[dict, UsageTotals]:
     """Call the claude CLI and return (parsed JSON, usage)."""
     cmd = [
         claude_path,
         "-p", prompt,
         "--output-format", "json",
         "--allowedTools", "Read",
-        "--max-turns", "25",
+        "--max-turns", str(max_turns),
     ]
+    if model:
+        cmd += ["--model", model]
 
     try:
         proc = subprocess.run(
@@ -212,21 +252,22 @@ def _call_claude_cli(claude_path: str, prompt: str, timeout: int = 300) -> tuple
     except subprocess.TimeoutExpired:
         raise AnalysisError(
             f"Claude Code CLI timed out after {timeout}s. "
-            "Try --detail low for fewer frames."
+            "Try --detail low for fewer frames, or trim the clip."
         )
     except FileNotFoundError:
         raise AnalysisError("Claude Code CLI not found")
 
-    # Parse the outer JSON envelope from claude --output-format json
+    # Parse the outer JSON from claude --output-format json. Older CLIs print
+    # one envelope dict; Claude Code 2.x prints a list of stream events.
     try:
-        envelope = json.loads(proc.stdout) if proc.stdout else {}
+        parsed = json.loads(proc.stdout) if proc.stdout else {}
     except json.JSONDecodeError:
-        envelope = {}
+        parsed = {}
+    envelope = _result_envelope(parsed)
 
     # Check for errors in the envelope or return code
     if envelope.get("is_error") or proc.returncode != 0:
-        error_msg = envelope.get("result", "") or proc.stderr or "unknown error"
-        raise AnalysisError(f"Claude Code CLI failed: {error_msg}")
+        raise AnalysisError(f"Claude Code CLI failed: {_cli_error_detail(envelope, proc)}")
 
     usage = _usage_from_envelope(envelope)
 
@@ -261,6 +302,57 @@ def _call_claude_cli(claude_path: str, prompt: str, timeout: int = 300) -> tuple
     if parsed is not None:
         return parsed, usage
     raise AnalysisError(f"Could not parse analysis result: {str(result_text)[:300]}")
+
+
+def _cli_error_detail(envelope: dict, proc: "subprocess.CompletedProcess[str]") -> str:
+    """Best available description of a failed CLI call.
+
+    The CLI does not always put its reason in ``result``: an aborted run may
+    carry only a ``subtype`` (``error_max_turns``, ``error_during_execution``)
+    or an ``errors`` list, and a crash may leave nothing but the exit code.
+    """
+    parts: list[str] = []
+    result = envelope.get("result")
+    if isinstance(result, str) and result.strip():
+        parts.append(result.strip()[:500])
+    subtype = envelope.get("subtype")
+    if subtype and subtype != "success":
+        parts.append(f"subtype={subtype}")
+    errors = envelope.get("errors")
+    if errors:
+        parts.append("errors=" + "; ".join(str(e) for e in errors)[:500])
+    stderr = (proc.stderr or "").strip()
+    if stderr:
+        parts.append(stderr[-500:])
+    if not parts:
+        tail = (proc.stdout or "").strip()[-300:]
+        parts.append(f"exit code {proc.returncode}" + (f", stdout tail: {tail}" if tail else ", no output"))
+    return " | ".join(parts)
+
+
+def _result_envelope(parsed: object) -> dict:
+    """Normalise `claude --output-format json` output to a single result dict.
+
+    Older CLIs emit one envelope dict. Claude Code 2.x emits a list of
+    events (system/init, assistant, rate_limit_event, result); the final
+    text, `is_error`, `usage`, and `total_cost_usd` live on the item whose
+    type is "result". Newer CLIs no longer put `model` on that item, so it
+    is recovered from `modelUsage` (keyed by model id) or the init event.
+    """
+    if isinstance(parsed, dict):
+        return parsed
+    if not isinstance(parsed, list):
+        return {}
+    events = [item for item in parsed if isinstance(item, dict)]
+    result = next((e for e in reversed(events) if e.get("type") == "result"), None)
+    if result is None:
+        return events[-1] if events else {}
+    envelope = dict(result)
+    if not envelope.get("model"):
+        by_model = envelope.get("modelUsage") or {}
+        init = next((e for e in events if e.get("type") == "system"), {})
+        envelope["model"] = next(iter(by_model), None) or init.get("model", "")
+    return envelope
 
 
 def _extract_json_from_prose(text: str) -> dict | None:

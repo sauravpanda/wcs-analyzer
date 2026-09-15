@@ -43,7 +43,7 @@ def main():
 _DEFAULT_MODELS = {
     "gemini": "gemini-3.1-pro-preview",
     "claude": "claude-sonnet-4-6",
-    "claude-code": "claude-sonnet-4-6",
+    "claude-code": "claude-opus-5",
 }
 
 # Longest frame edge (pixels) sent to the frame-based Claude providers.
@@ -183,7 +183,7 @@ def _analyze_single(
         elif provider == "gemini":
             segments = _analyze_with_gemini(video_path, model, detail, dancers, pose_context)
         elif provider == "claude-code":
-            segments = _analyze_with_claude_code(video_path, detail, fps, dancers, max_dimension)
+            segments = _analyze_with_claude_code(video_path, detail, fps, dancers, max_dimension, model)
         else:
             segments = _analyze_with_claude(video_path, model, detail, fps, dancers, max_dimension)
 
@@ -265,7 +265,7 @@ def _analyze_ensemble(
             elif provider == "gemini":
                 segments = _analyze_with_gemini(video_path, model, detail, dancers, pose_context)
             elif provider == "claude-code":
-                segments = _analyze_with_claude_code(video_path, detail, fps, dancers, max_dimension)
+                segments = _analyze_with_claude_code(video_path, detail, fps, dancers, max_dimension, model)
             else:
                 segments = _analyze_with_claude(video_path, model, detail, fps, dancers, max_dimension)
 
@@ -336,7 +336,7 @@ def _analyze_batch(
             elif provider == "gemini":
                 segments = _analyze_with_gemini(video_path, model, detail, dancers, pose_context)
             elif provider == "claude-code":
-                segments = _analyze_with_claude_code(video_path, detail, fps, dancers, max_dimension)
+                segments = _analyze_with_claude_code(video_path, detail, fps, dancers, max_dimension, model)
             else:
                 segments = _analyze_with_claude(video_path, model, detail, fps, dancers, max_dimension)
 
@@ -401,14 +401,15 @@ def _analyze_batch(
 
 def _analyze_with_claude_code(
     video_path: Path, detail: str, fps: float = 3.0, dancers: str | None = None,
-    max_dimension: int = _DEFAULT_MAX_DIMENSION,
+    max_dimension: int = _DEFAULT_MAX_DIMENSION, model: str | None = None,
 ) -> list:
     """Run analysis via the locally installed Claude Code CLI."""
     from .claude_code_analyzer import analyze_dance_claude_code
 
     with console.status("Analyzing with Claude Code CLI (reading frames)..."):
         segments = analyze_dance_claude_code(
-            video_path, detail=detail, dancers=dancers, fps=fps, max_dimension=max_dimension,
+            video_path, detail=detail, dancers=dancers, fps=fps,
+            max_dimension=max_dimension, model=model,
         )
     console.print("  Claude Code analyzed video frames")
     return segments
@@ -566,7 +567,7 @@ def timing(video_path: Path, provider: str, dancers: str | None, verbose: bool):
         if provider == "gemini":
             segments = _analyze_with_gemini(video_path, model, detail="low", dancers=dancers)
         elif provider == "claude-code":
-            segments = _analyze_with_claude_code(video_path, detail="low", fps=2.0, dancers=dancers)
+            segments = _analyze_with_claude_code(video_path, detail="low", fps=2.0, dancers=dancers, model=model)
         else:
             segments = _analyze_with_claude(video_path, model, detail="low", fps=2.0, dancers=dancers)
 
@@ -660,6 +661,219 @@ def patterns(video_path: Path, provider: str, model: str | None, fps: float):
         )
     console.print(table)
     console.print()
+
+
+@main.command()
+@click.argument("video_path", type=click.Path(exists=True, path_type=Path))
+@click.option("--model", default="claude-opus-5", show_default=True, help="Claude model to run through the Claude Code CLI.")
+@click.option("--fps", type=float, default=3.0, callback=_validate_fps, show_default=True, help="Survey-pass sampling rate (frames per second).")
+@click.option("--hd", is_flag=True, default=False, help="Extract 1080px frames instead of 768px.")
+@click.option("--max-dimension", "max_dimension", type=int, default=None, help="Longest frame edge in pixels (default 768; --hd sets 1080).")
+@click.option("--dancers", default=None, help='Which couple to follow, e.g. "lead wearing bib 42".')
+@click.option("--division", default=None, help="Your division (e.g. novice, intermediate); notes are framed for that level.")
+@click.option("--zoom/--no-zoom", default=True, show_default=True, help="Slow-motion, count-by-count pass on the flagged moments.")
+@click.option("--zoom-moments", type=int, default=8, show_default=True, help="How many moments to slow down on.")
+@click.option("--zoom-fps", type=float, default=10.0, show_default=True, help="Frame rate for the slow-motion bursts.")
+@click.option("--output-dir", "-o", type=click.Path(path_type=Path), default=None, help="Report folder (default: <video stem>_coach/).")
+@click.option("--rerender", is_flag=True, default=False, help="Rebuild the Markdown/HTML from a previous run's coach.json without calling the model.")
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging output.")
+def coach(
+    video_path: Path, model: str, fps: float, hd: bool, max_dimension: int | None,
+    dancers: str | None, division: str | None, zoom: bool, zoom_moments: int, zoom_fps: float,
+    output_dir: Path | None, rerender: bool, verbose: bool,
+):
+    """Judge-style coaching notes for one video.
+
+    Produces what an experienced judge would write in the margin: an overall
+    impression, the themes a judge would notice, a note every few seconds with
+    a strip of frames, a phrase-change check from the audio, and slow-motion
+    count-by-count detail on the moments that matter. Two model passes through
+    the local Claude Code CLI (Opus 5 by default): a survey of the whole clip,
+    then 10 fps bursts around the flagged moments.
+
+    \b
+    Examples:
+      wcs-analyzer coach clip.mp4 --dancers "lead wearing bib 42" --division intermediate
+      wcs-analyzer coach clip.mp4 --no-zoom --fps 4
+    """
+    from .coach import load_report, run_coach
+    from .coach_report import write_reports
+
+    _setup_logging(verbose)
+    if max_dimension is None:
+        max_dimension = _HD_MAX_DIMENSION if hd else _DEFAULT_MAX_DIMENSION
+    out_dir = output_dir or Path(video_path.stem + "_coach")
+
+    if rerender:
+        try:
+            report = load_report(out_dir)
+        except FileNotFoundError:
+            console.print(f"[red]No coach.json in {out_dir}; run without --rerender first.[/red]")
+            raise SystemExit(1)
+        md_path, html_path = write_reports(report, out_dir)
+        console.print(f"\n  Re-rendered from coach.json: [cyan]{html_path}[/cyan]\n          [cyan]{md_path}[/cyan]")
+        return
+
+    console.print(f"\n[bold]WCS Analyzer[/bold] — coaching notes for [cyan]{video_path.name}[/cyan]")
+    console.print(
+        f"  Model: [bold]{model}[/bold] via Claude Code  |  survey {fps:g} fps"
+        + (f", zoom {zoom_fps:g} fps x {zoom_moments}" if zoom else ", no zoom")
+    )
+    if dancers:
+        console.print(f"  Following: [cyan]{dancers}[/cyan]")
+    if division:
+        console.print(f"  Division: [magenta]{division}[/magenta]")
+    console.print()
+
+    try:
+        report = run_coach(
+            video_path, out_dir, model=model, fps=fps, max_dimension=max_dimension,
+            dancers=dancers, division=division, zoom=zoom, zoom_moments=zoom_moments,
+            zoom_fps=zoom_fps, progress=lambda msg: console.print(f"  [dim]{msg}[/dim]"),
+        )
+    except WCSAnalyzerError as e:
+        console.print(f"\n  [red]Error:[/red] {e}")
+        raise SystemExit(1)
+
+    md_path, html_path = write_reports(report, out_dir)
+    console.print()
+    for w in report.warnings:
+        console.print(f"  [yellow]\u26a0 {w}[/yellow]")
+    focus = report.focus or {}
+    if focus.get("description"):
+        conf = focus.get("confidence")
+        conf_str = f" (confidence {float(conf):.0%})" if isinstance(conf, (int, float)) else ""
+        console.print(f"  Watched: {focus['description']}{conf_str}")
+    console.print(
+        f"  Themes: [bold]{len(report.themes)}[/bold]  Notes: [bold]{len(report.notes)}[/bold]"
+        f"  Slow-motion looks: [bold]{len(report.zooms)}[/bold]"
+    )
+    for i, t in enumerate(report.themes, 1):
+        console.print(f"    {i}. {t.get('title')}")
+    if report.usage.estimated_cost:
+        console.print(f"  Estimated cost: ~${report.usage.estimated_cost:.2f}")
+    console.print(f"\n  Report: [cyan]{html_path}[/cyan]\n          [cyan]{md_path}[/cyan]")
+
+
+@main.command()
+@click.argument("video_path", type=click.Path(exists=True, path_type=Path))
+@click.option("-o", "--output-dir", type=click.Path(path_type=Path), default=None,
+              help="Where to write phrase_map.json and song_map.svg (default: <video stem>_coach/).")
+@click.option("--judge", is_flag=True,
+              help="Also ask the model whether the couple acknowledged each change (writes into coach.json).")
+@click.option("--model", default="claude-opus-5", show_default=True, help="Model for --judge, via the Claude Code CLI.")
+@click.option("--dancers", default=None, help='Which couple to follow, e.g. "lead wearing bib 42".')
+@click.option("--fps", default=4.0, show_default=True, help="Frame rate of the burst around each change (--judge).")
+@click.option("--window", default=3.0, show_default=True, help="Seconds before and after each change (--judge).")
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose logging output.")
+def phrases(video_path: Path, output_dir: Path | None, judge: bool, model: str, dancers: str | None,
+            fps: float, window: float, verbose: bool):
+    """Find the 8-count grid and the real phrase changes in a video's music.
+
+    Audio only by default: writes phrase_map.json and a song_map.svg you can
+    check by ear (energy, novelty, the 8-count ticks, each boundary labelled with
+    the counts of the section that ends there). With --judge, one model call
+    reviews a short frame burst around every change and records whether the
+    couple acknowledged it, replacing the phrase table in coach.json.
+
+    \b
+    Examples:
+      wcs-analyzer phrases clip.mp4 -o clip_coach
+      wcs-analyzer phrases clip.mp4 -o clip_coach --judge --dancers "lead wearing bib 42"
+    """
+    import json
+
+    from .audio import estimate_phrase_starts, extract_audio_features
+    from .coach import build_phrase_map, judge_phrases, load_report
+    from .coach_report import write_reports
+    from .phrases import song_map_svg
+    from .video import get_video_duration
+
+    _setup_logging(verbose)
+    out_dir = output_dir or Path(video_path.stem + "_coach")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if judge:
+        console.print(f"\n[bold]WCS Analyzer[/bold] — phrase check for [cyan]{video_path.name}[/cyan] "
+                      f"({model}, {fps:g} fps, ±{window:g}s)")
+        try:
+            result = judge_phrases(
+                video_path, out_dir, model=model, fps=fps, window=window, dancers=dancers,
+                progress=lambda msg: console.print(f"  [dim]{msg}[/dim]"),
+            )
+        except WCSAnalyzerError as e:
+            console.print(f"\n  [red]Error:[/red] {e}")
+            raise SystemExit(1)
+        judged = result["phrases"]
+        hits = sum(1 for p in judged if p["acknowledged"])
+        console.print(f"\n  {hits} of {len(judged)} phrase changes acknowledged")
+        for p in judged:
+            mark = "🟢" if p["acknowledged"] else ("⚪" if p["acknowledged"] is None else "🔴")
+            console.print(f"  {mark} {int(p['time']) // 60}:{p['time'] % 60:04.1f}  {p.get('counts', '')} {p.get('kind', '')}"
+                          f"  {p.get('response', '')}/{p.get('timing', '')}  {str(p.get('how', ''))[:90]}")
+        if result["usage"].estimated_cost:
+            console.print(f"  Estimated cost: ~${result['usage'].estimated_cost:.2f}")
+        if (out_dir / "coach.json").exists():
+            md_path, html_path = write_reports(load_report(out_dir), out_dir)
+            console.print(f"  Report re-rendered: [cyan]{html_path}[/cyan]")
+        return
+    try:
+        audio = extract_audio_features(video_path)
+    except WCSAnalyzerError as e:
+        console.print(f"[red]Audio failed:[/red] {e}")
+        raise SystemExit(1)
+    if not audio.beat_times:
+        console.print("[red]No beats found in the audio.[/red]")
+        raise SystemExit(1)
+    pm = build_phrase_map(video_path, audio)
+    if pm is None:
+        console.print("[red]Too little audio to analyse structure.[/red]")
+        raise SystemExit(1)
+    duration = get_video_duration(video_path) or audio.beat_times[-1]
+    (out_dir / "phrase_map.json").write_text(json.dumps(pm.to_dict(), indent=1))
+    (out_dir / "song_map.svg").write_text(song_map_svg(pm, duration, old_grid=estimate_phrase_starts(audio)))
+    console.print(f"\n[bold]{video_path.name}[/bold]: {audio.bpm:.0f} BPM, count 1 of each 8 from "
+                  f"{pm.eights[0]:.1f}s, {len(pm.boundaries)} phrase boundaries")
+    for b in pm.boundaries:
+        what = "first phrase" if b.kind == "start" else f"{b.counts:>2} counts · {b.kind}"
+        console.print(f"  {int(b.time) // 60}:{b.time % 60:04.1f}  {what}  (confidence {b.confidence:.0%})")
+    console.print(f"\n  Wrote [cyan]{out_dir / 'phrase_map.json'}[/cyan] and [cyan]{out_dir / 'song_map.svg'}[/cyan]")
+
+
+@main.command("coach-bundle")
+@click.argument("dirs", nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("-o", "--output", type=click.Path(path_type=Path), required=True, help="The single HTML file to write.")
+@click.option("--title", default="Coaching notes", show_default=True, help="Page title.")
+@click.option("--intro", default=None, help="Replace the default introduction paragraph.")
+@click.option("--label", "labels", multiple=True, help="Heading for each folder, in order (default: from the video name).")
+@click.option("--clips", is_flag=True, help="Embed a short video snippet next to each slow-motion look (needs ffmpeg and the videos).")
+@click.option("--videos-dir", type=click.Path(exists=True, file_okay=False, path_type=Path), default=None,
+              help="Where the original videos are (default: two levels above each report folder).")
+def coach_bundle(dirs: tuple[Path, ...], output: Path, title: str, intro: str | None, labels: tuple[str, ...],
+                 clips: bool, videos_dir: Path | None):
+    """Combine several coach reports into one shareable HTML file.
+
+    Everything is inline (frame strips, song maps, optional video snippets), so
+    the one file can be sent to a coach or a friend and opened anywhere.
+
+    \b
+    Examples:
+      wcs-analyzer coach-bundle song1_coach song2_coach -o notes.html --title "Swingtacular prelims"
+      wcs-analyzer coach-bundle song1_coach -o notes.html --clips --label "Song 1 (blues)"
+    """
+    from .coach_report import write_bundle
+
+    missing = [d for d in dirs if not (d / "coach.json").exists()]
+    if missing:
+        console.print("[red]No coach.json in:[/red] " + ", ".join(str(d) for d in missing))
+        raise SystemExit(1)
+    if labels and len(labels) != len(dirs):
+        console.print(f"[red]Got {len(labels)} --label values for {len(dirs)} folders; give one per folder.[/red]")
+        raise SystemExit(1)
+    path = write_bundle(list(dirs), output, title=title, intro=intro, labels=list(labels) or None,
+                        clips=clips, videos_dir=videos_dir)
+    console.print(f"Wrote [cyan]{path}[/cyan] ({path.stat().st_size / 1e6:.1f} MB, {len(dirs)} songs"
+                  + (", with video snippets" if clips else "") + ")")
 
 
 @main.command()

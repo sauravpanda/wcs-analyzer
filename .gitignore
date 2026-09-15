@@ -51,3 +51,11 @@ report_*.csv
 # Git worktrees (Claude Code and local tooling)
 .worktrees/
 .claude/worktrees/
+
+# Coaching output and local benchmark material (videos, manifests, proxies, reports)
+*_coach/
+bench/
+proxies/
+videos.csv
+phrase_map.json
+song_map.svg

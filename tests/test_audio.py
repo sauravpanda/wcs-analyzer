@@ -1,6 +1,23 @@
 """Tests for audio beat context formatting."""
 
-from wcs_analyzer.audio import AudioFeatures, format_beat_context
+import pytest
+
+from wcs_analyzer.audio import AudioFeatures, fold_tempo, format_beat_context
+
+
+@pytest.mark.parametrize("raw, expected", [
+    (50.7, 101.4),   # halved by the tracker
+    (57.4, 114.8),
+    (184.6, 92.3),   # doubled by the tracker
+    (172.3, 86.15),
+    (103.4, 103.4),  # already in the danced band
+    (72.0, 72.0),
+    (150.0, 150.0),
+    (30.0, 120.0),   # two octaves off still folds in
+    (0.0, 0.0),      # no tempo stays no tempo
+])
+def test_fold_tempo(raw, expected):
+    assert fold_tempo(raw) == pytest.approx(expected)
 
 
 def test_format_beat_context():
