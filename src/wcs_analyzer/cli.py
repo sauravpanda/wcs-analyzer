@@ -840,6 +840,42 @@ def phrases(video_path: Path, output_dir: Path | None, judge: bool, model: str, 
     console.print(f"\n  Wrote [cyan]{out_dir / 'phrase_map.json'}[/cyan] and [cyan]{out_dir / 'song_map.svg'}[/cyan]")
 
 
+@main.command("coach-bundle")
+@click.argument("dirs", nargs=-1, required=True, type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("-o", "--output", type=click.Path(path_type=Path), required=True, help="The single HTML file to write.")
+@click.option("--title", default="Coaching notes", show_default=True, help="Page title.")
+@click.option("--intro", default=None, help="Replace the default introduction paragraph.")
+@click.option("--label", "labels", multiple=True, help="Heading for each folder, in order (default: from the video name).")
+@click.option("--clips", is_flag=True, help="Embed a short video snippet next to each slow-motion look (needs ffmpeg and the videos).")
+@click.option("--videos-dir", type=click.Path(exists=True, file_okay=False, path_type=Path), default=None,
+              help="Where the original videos are (default: two levels above each report folder).")
+def coach_bundle(dirs: tuple[Path, ...], output: Path, title: str, intro: str | None, labels: tuple[str, ...],
+                 clips: bool, videos_dir: Path | None):
+    """Combine several coach reports into one shareable HTML file.
+
+    Everything is inline (frame strips, song maps, optional video snippets), so
+    the one file can be sent to a coach or a friend and opened anywhere.
+
+    \b
+    Examples:
+      wcs-analyzer coach-bundle song1_coach song2_coach -o notes.html --title "Swingtacular prelims"
+      wcs-analyzer coach-bundle song1_coach -o notes.html --clips --label "Song 1 (blues)"
+    """
+    from .coach_report import write_bundle
+
+    missing = [d for d in dirs if not (d / "coach.json").exists()]
+    if missing:
+        console.print("[red]No coach.json in:[/red] " + ", ".join(str(d) for d in missing))
+        raise SystemExit(1)
+    if labels and len(labels) != len(dirs):
+        console.print(f"[red]Got {len(labels)} --label values for {len(dirs)} folders; give one per folder.[/red]")
+        raise SystemExit(1)
+    path = write_bundle(list(dirs), output, title=title, intro=intro, labels=list(labels) or None,
+                        clips=clips, videos_dir=videos_dir)
+    console.print(f"Wrote [cyan]{path}[/cyan] ({path.stat().st_size / 1e6:.1f} MB, {len(dirs)} songs"
+                  + (", with video snippets" if clips else "") + ")")
+
+
 @main.command()
 @click.argument("dancer", required=True)
 def progress(dancer: str):

@@ -201,6 +201,14 @@ Output is a folder `<clip>_coach/` with `coach_report.html` (self-contained, ima
 Expect roughly 10 to 25 minutes and a few dollars of Claude usage per clip; the zoom pass
 is most of it. If the focus confidence is low, check the strips before acting on any note.
 
+To share a set of reports as one file, `coach-bundle` combines them (intro, contents, every
+report in full, frame strips inline; `--clips` also embeds a short video snippet next to each
+slow-motion look):
+
+```bash
+wcs-analyzer coach-bundle song1_coach song2_coach song3_coach -o notes.html --title "Prelims" --clips
+```
+
 ### `phrases` — Where the music actually changes
 
 Competition songs are not built from perfect 32-count phrases: there are intros, 16- and

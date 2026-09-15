@@ -23,7 +23,7 @@ from wcs_analyzer.coach import (
     note_strip,
     run_coach,
 )
-from wcs_analyzer.coach_report import write_reports
+from wcs_analyzer.coach_report import write_bundle, write_reports
 from wcs_analyzer.phrases import PhraseBoundary, PhraseMap
 from wcs_analyzer.exceptions import AudioProcessingError
 from wcs_analyzer.pricing import UsageTotals
@@ -330,6 +330,35 @@ class TestJudgePhrases:
 
 
 class TestReports:
+    def test_bundle_is_one_file_with_every_song(self, tmp_path: Path):
+        import shutil
+
+        video = tmp_path / "clip.mp4"
+        video.write_bytes(b"x")
+        out1 = tmp_path / "song1_coach"
+        usage = UsageTotals(input_tokens=1, output_tokens=1, estimated_cost=0.25, model="claude-opus-5", pricing_known=True)
+        with patch("wcs_analyzer.coach._check_claude_cli", return_value="/bin/claude"), \
+             patch("wcs_analyzer.coach.extract_audio_features", return_value=_audio()), \
+             patch("wcs_analyzer.coach.get_video_duration", return_value=30.0), \
+             patch("wcs_analyzer.coach.extract_frames", return_value=_frames(90, 3.0)), \
+             patch("wcs_analyzer.coach.extract_frames_between", return_value=_frames(24, 10.0)), \
+             patch("wcs_analyzer.coach._call_claude_cli", side_effect=[(SURVEY, usage), (ZOOM, usage), (ZOOM, usage)]):
+            run_coach(video, out1, zoom_moments=2)
+        out2 = tmp_path / "song2_coach"
+        shutil.copytree(out1, out2)
+
+        path = write_bundle([out1, out2], tmp_path / "share" / "notes.html", title="Two songs", labels=["Song A", "Song B"])
+        html = path.read_text()
+        assert path.parent.name == "share"
+        assert html.count("<!doctype html>") == 1 and html.count("</html>") == 1
+        assert "<title>Two songs</title>" in html and "<h1 id='top'>Two songs</h1>" in html
+        assert "href='#song-1'>Song A" in html and "href='#song-2'>Song B" in html
+        assert "<h1 id='song-1'>Song A</h1>" in html and "<h1 id='song-2'>Song B</h1>" in html
+        assert html.count("data:image/jpeg;base64,") >= 2 * (3 + 2)        # both songs' note and zoom strips inline
+        assert html.count("Back to contents") == 2
+        assert "<video" not in html                                        # no clips requested
+        assert "AI coach" in html                                          # default intro for the reader
+
     def test_markdown_and_html(self, tmp_path: Path):
         video = tmp_path / "clip.mp4"
         video.write_bytes(b"x")
