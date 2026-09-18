@@ -233,6 +233,20 @@ false-positive rate; read the acknowledgment rate net of the decoy rate stored u
 `phrase_judge_calibration`. `coach` runs the same audio analysis itself, so new coaching reports
 are judged on these boundaries from the start.
 
+## Coaching a season
+
+For a folder of competition clips, the scripts in [`tools/season/`](tools/season/) run the
+coaching and phrase judging over a `videos.csv` manifest (resumable, logged), make
+browser-playable copies, and build a progress dashboard: per-event trends, the theme
+families that keep coming back, a drill library, every note with a play button into the
+video, and a practice plan. See [`tools/season/README.md`](tools/season/README.md).
+
+The repo also ships a Claude Code skill, [`.claude/skills/wcs-coach`](.claude/skills/wcs-coach/SKILL.md),
+so that Claude Code in this checkout knows which command answers which question, what a
+run costs, how to read `coach.json` honestly (focus confidence, decoy chance level, what
+counts as noise across three songs), and how to write the read-out. Videos, manifests and
+report folders are gitignored; nothing personal is meant to be committed.
+
 ### `compare` — Compare multiple analyses
 
 Compare scores across multiple JSON reports to track progress:
@@ -395,15 +409,15 @@ uv sync
 ### Run checks
 
 ```bash
-ruff check src/ tests/    # Lint
-pyright src/               # Type check
-pytest tests/ -v           # Tests (230+ tests, all mocked, no API key needed)
+ruff check src/ tests/ tools/   # Lint
+pyright src/                     # Type check
+pytest tests/ -v                 # Tests (300+ tests, all mocked, no API key needed)
 ```
 
 ### Run all CI checks locally
 
 ```bash
-ruff check src/ && pyright src/ && pytest tests/ -v
+ruff check src/ tests/ tools/ && pyright src/ && pytest tests/ -v
 ```
 
 ## Tips for Best Results
