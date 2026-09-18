@@ -34,7 +34,7 @@ Name files so the event, division, round and bib are in the stem, one number per
 Songs are grouped into an event by `event + comp_mode + comp_stage`. Six clips from one
 weekend are often more than one contest; confirm with the user before filling rows.
 
-## 2. Coach every clip
+## 2. Coach every clip (costs money)
 
 ```bash
 uv run python tools/season/coach_batch.py --manifest videos.csv --bench bench \
@@ -51,7 +51,7 @@ When a run fails: read the log tail. "Claude Code CLI failed" with a subtype is 
 into the song means the CLI dropped the early frames; rerun that clip alone with a lower
 `--fps` via `wcs-analyzer coach` directly.
 
-## 3. Judge the phrase changes strictly
+## 3. Judge the phrase changes strictly (costs money)
 
 ```bash
 uv run python tools/season/judge_batch.py --manifest videos.csv --bench bench [--priority sbdf]
@@ -63,22 +63,25 @@ the previous file as `coach.json.prejudge.bak`, and re-renders the report with t
 map. Older reports without a song map can get one for free with
 `uv run python tools/season/phrase_maps.py --videos-dir . --bench bench`.
 
-## 4. Proxies for playback
+## 4. Proxies for playback (free)
 
 ```bash
-python tools/season/make_proxies.py --videos-dir . --out bench/proxies
+uv run python tools/season/make_proxies.py --videos-dir . --out bench/proxies
 ```
 
 H.264 720p copies (hard links when the original already qualifies). Roughly 40 MB per
 song. The local dashboard plays these directly.
 
-## 5. Build the dashboard
+## 5. Build the dashboard (free, safe to rerun any time)
 
 ```bash
-python tools/season/progress_data.py --manifest videos.csv --bench bench
-python tools/season/build_progress.py --bench bench
+uv run python tools/season/progress_data.py --manifest videos.csv --bench bench
+uv run python tools/season/build_progress.py --bench bench
 open bench/progress_dashboard_local.html
 ```
+
+Steps 2 and 3 are the only ones that call a model. Everything else reads files on disk,
+so rebuilding the dashboard to answer a question costs nothing and changes nothing else.
 
 `progress.json` holds per-song and per-event metrics (definitions in
 [reading-reports.md](reading-reports.md)); the build writes two pages:

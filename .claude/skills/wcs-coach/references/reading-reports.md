@@ -27,9 +27,18 @@ survey saw the opening):
 | metric | definition | reading |
 |---|---|---|
 | `keep_share` | keep notes over all notes | higher is better; 30 to 40% is typical |
-| `phrase_rate` | acknowledged over judged boundaries | read against the decoy rate; `null` when nothing was judged |
-| `decoys`, `decoy_hits`, `decoy_rate` | strict judge's false positives | the chance level; 15 to 25% is normal |
+| `phrase_rate` | acknowledged over judged boundaries, pooled over the event's used songs (not a mean of song rates) | read against the season chance level, see below; `null` when nothing was judged |
+| `decoys`, `decoy_hits`, `decoy_rate` | the strict judge's verdicts on windows that were not phrase changes | per event these are 6 or 8 windows: too few to trust alone |
+| `chance_level` (top level) | decoys pooled over the whole season: `{decoys, hits, rate}` | the number to quote as chance |
 | `phrase_judge` | `strict`, `in-run`, `old-grid` | only compare `strict` with `strict` |
+
+### Reading the phrase rate
+
+1. Chance is the **season-pooled** decoy rate (`chance_level.rate`, typically 15 to 25%). A single event's 0 of 6 or 3 of 6 is sampling noise; mention it only as a sanity check.
+2. Lift is the difference in points: event `phrase_rate` minus `chance_level.rate`. Under 15 points above chance, call the event "at chance". Between events, treat differences under 10 points of lift as a tie.
+3. Quote pooled counts with the percentage ("8 of 17, 47%, against a 16% chance level"). With 15 to 25 judged boundaries per event, two events are rarely separable; say "a tie at the top" when they are within 10 points rather than naming a winner.
+4. `phrases` entries with `acknowledged: null` were sent to the judge but came back blocked (couple hidden) or unanswered; they are excluded from `phrases` and `phrase_hits`, which is why `phrase_judge_calibration.real` can exceed the judged count. Do not treat a null as a miss.
+5. Song-level rates rest on 3 to 8 boundaries; never rank songs by them.
 | `stall_s` | seconds covered by refine notes about closed position, hugging, standing | lower is better; finals run higher than prelims |
 | `opening_s` | length of the earliest note about standing or not yet dancing (first 15 s) | under 2 s is the target |
 | `off_beat`, `on_beat` | mentions of late / behind / rushing and of on-the-beat in the count notes and survey notes | rough; direction only |
@@ -49,8 +58,8 @@ Theme families and what they mean on the floor:
 ## What counts as a difference
 
 With three songs per event, treat as noise: under one refine note per song in a family,
-under five points of keep share, under ten points of phrase rate, under three seconds of
-stall time. Two events differing by more than that in the same direction as the report
+under five points of keep share, under ten points of phrase-rate lift over chance, under
+three seconds of stall time. Two events differing by more than that in the same direction as the report
 prose is a finding; one number alone is not.
 
 Prelims and finals are different tasks: a final is three songs with one partner, so

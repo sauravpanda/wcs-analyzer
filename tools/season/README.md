@@ -30,9 +30,9 @@ bench/progress_dashboard.html, progress_dashboard_local.html   from build_progre
 Refresh after new clips:
 
 ```bash
-uv run python tools/season/coach_batch.py  --manifest videos.csv --bench bench
-uv run python tools/season/judge_batch.py  --manifest videos.csv --bench bench
-python tools/season/make_proxies.py        --videos-dir . --out bench/proxies
-python tools/season/progress_data.py       --manifest videos.csv --bench bench
-python tools/season/build_progress.py      --bench bench
+uv run python tools/season/coach_batch.py    --manifest videos.csv --bench bench   # calls the model
+uv run python tools/season/judge_batch.py    --manifest videos.csv --bench bench   # calls the model
+uv run python tools/season/make_proxies.py   --videos-dir . --out bench/proxies    # free
+uv run python tools/season/progress_data.py  --manifest videos.csv --bench bench   # free
+uv run python tools/season/build_progress.py --bench bench                         # free
 ```

@@ -280,11 +280,13 @@ def build(manifest: Path, bench: Path, plan: Path | None = None) -> dict:
         if not mine:
             continue
         meta = {k: v for k, v in e.items() if k != "files"}
+        judged = sum(c["phrases"] for c in used)
         events.append(dict(
             **meta, n_clips=len(mine), n_used=len(used), cost=round(sum(c["cost"] for c in mine), 2),
             keep_share=mean([c["keep_share"] for c in used]),
-            phrase_rate=mean([c["phrase_rate"] for c in used]),
-            phrase_hits=sum(c["phrase_hits"] for c in used), phrases=sum(c["phrases"] for c in used),
+            # pooled over the event's judged boundaries, like decoy_rate, so the two can be subtracted
+            phrase_rate=round(sum(c["phrase_hits"] for c in used) / judged, 3) if judged else None,
+            phrase_hits=sum(c["phrase_hits"] for c in used), phrases=judged,
             decoys=sum(c["decoys"] for c in used), decoy_hits=sum(c["decoy_hits"] for c in used),
             decoy_rate=(round(sum(c["decoy_hits"] for c in used) / sum(c["decoys"] for c in used), 3)
                         if sum(c["decoys"] for c in used) else None),
@@ -298,10 +300,15 @@ def build(manifest: Path, bench: Path, plan: Path | None = None) -> dict:
             doing_well=[d for c in used for d in c["doing_well"]],
         ))
 
+    all_decoys = sum(e["decoys"] for e in events)
     out = dict(
         generated=date.today().isoformat(),
         rules=dict(min_focus=MIN_FOCUS, partial_fraction=PARTIAL_FRACTION),
         families=[dict(id=f["id"], label=f["label"]) for f in FAMILIES],
+        # the season-pooled decoy rate is the chance level to read every phrase rate against;
+        # six decoys per event are too few to trust on their own
+        chance_level=dict(decoys=all_decoys, hits=sum(e["decoy_hits"] for e in events),
+                          rate=round(sum(e["decoy_hits"] for e in events) / all_decoys, 3) if all_decoys else None),
         events=events, clips=clips, drills=drills, skipped=skipped,
     )
     if plan and plan.exists():
@@ -321,9 +328,14 @@ def main() -> None:
     print(f"wrote {args.bench / 'progress.json'}: {len(out['events'])} events, {len(out['clips'])} songs, "
           f"{len(out['drills'])} drills" + (f"; skipped {len(out['skipped'])} report folders not in the manifest: "
                                             f"{', '.join(out['skipped'])}" if out["skipped"] else ""))
+    ch = out["chance_level"]
+    if ch["rate"] is not None:
+        print(f"  chance level (season-pooled decoys): {ch['hits']}/{ch['decoys']} = {ch['rate']:.0%}")
     for e in out["events"]:
         pr = f"{e['phrase_rate']:.0%}" if e["phrase_rate"] is not None else "-"
-        print(f"  {e['short']:14s} used {e['n_used']}/{e['n_clips']} keep {e['keep_share']:.0%} phrases {pr} "
+        lift = (f" ({(e['phrase_rate'] - ch['rate']) * 100:+.0f} pts)"
+                if e["phrase_rate"] is not None and ch["rate"] is not None else "")
+        print(f"  {e['short']:14s} used {e['n_used']}/{e['n_clips']} keep {e['keep_share']:.0%} phrases {pr}{lift} "
               f"decoys {e['decoy_hits']}/{e['decoys']} stall {e['stall_s']:.0f}s open {e['opening_s']} off {e['off_beat']}")
 
 

@@ -108,6 +108,7 @@ def test_events_come_from_the_manifest(tmp_path: Path):
     assert strictly["marks"] == "N N Y" and strictly["decoys"] == 0
     assert out["skipped"] == ["coach_old-clip-not-in-manifest"]
     assert out["plan"][0]["title"] == "Custom item"
+    assert out["chance_level"] == {"decoys": 2, "hits": 1, "rate": 0.5}   # pooled over the season's used songs
 
 
 def test_song_metrics_and_exclusions(tmp_path: Path):

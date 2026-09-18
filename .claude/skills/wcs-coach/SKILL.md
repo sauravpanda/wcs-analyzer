@@ -20,8 +20,14 @@ and anything about a moment when the couple was hidden is a guess the report sho
 | Where the music actually changes, no model call | `wcs-analyzer phrases CLIP -o CLIP_coach` | free, seconds |
 | Did they acknowledge each phrase change, strictly judged | `wcs-analyzer phrases CLIP -o CLIP_coach --judge --dancers "..."` | $3 to $4, 4 min |
 | One file to send to a coach or friend | `wcs-analyzer coach-bundle DIR1 DIR2 -o notes.html --title "..." --clips` | free |
-| A whole season and the trend | the batch scripts in `tools/season/`, see [references/season-pipeline.md](references/season-pipeline.md) | sum of the above |
+| A whole season and the trend | the batch scripts in `tools/season/`, see [references/season-pipeline.md](references/season-pipeline.md) | coach and judge as above; the rest is free |
+| Rebuild the dashboard from existing reports | `uv run python tools/season/progress_data.py ...` then `build_progress.py` | free, seconds, safe to rerun |
 | A WSDC-style score, not coaching | `wcs-analyzer analyze CLIP --provider claude-code` | $3 to $7 |
+
+Only `coach` and `phrases --judge` (and the two batch scripts that call them) spend money;
+`phrases` without `--judge`, `coach-bundle`, `phrase_maps.py`, `make_proxies.py`,
+`progress_data.py` and `build_progress.py` are local and free, so run them whenever useful.
+Use `uv run ...` for every command so the project environment is the one that runs.
 
 The coaching commands run through the local Claude Code CLI (`claude`), so they need it
 installed and signed in; no API key. Opus 5 is the default and the only model these
@@ -57,11 +63,14 @@ by ear. `coach` uses the same boundaries.
 each boundary and credits only a deliberate musical choice (a hit, a stop of two counts or
 more, a level change, a release, a styling accent, a sharp change of direction or speed).
 Two **decoy windows** per song, count 1 of an 8 that is not a phrase change, are mixed in
-unlabelled. The share of decoys the judge credits is its chance level (about 15 to 25%).
-Always report acknowledgment against that chance level, never as a bare percentage, and
-never compare a strictly judged song with one judged the old way. `coach.json` says which:
+unlabelled. The share of decoys the judge credits is its chance level. Report acknowledgment
+as pooled counts and a lift over the **season-pooled** chance level in points ("8 of 17,
+47%, against 16% chance"): six decoys per event are too few to use alone, under 15 points
+above chance is "at chance", and events within 10 points of each other are a tie. Never
+compare a strictly judged song with one judged the old way. `coach.json` says which:
 `phrase_judge_calibration` present means strict; `music.method` `structure-v2` means judged
-in the coach run without decoys; `fixed-32` means the old grid.
+in the coach run without decoys; `fixed-32` means the old grid. Boundaries the judge could
+not see come back `acknowledged: null` and are left out of every rate.
 
 ## Sharing
 
@@ -85,7 +94,7 @@ practice plan that can be personalised in `bench/plan.json`.
 The user usually wants three things: what improved, what has not moved, what to do next.
 Ground each claim in the numbers and the report prose together. Rules that keep it honest:
 
-- Three songs per event is a small sample. Differences under about one refine note per song, five percentage points of keep share, or ten points of phrase rate are noise; say "flat" rather than inventing a trend.
+- Three songs per event is a small sample. Differences under about one refine note per song, five percentage points of keep share, or ten points of phrase-rate lift over chance are noise; say "flat" or "a tie" rather than inventing a trend or a winner.
 - Compare like with like: prelim with prelim, final with final, and only strictly judged phrase rates with each other. A final with one partner for three songs behaves differently from a prelim with three partners; name that.
 - Put strengths first and keep them specific (the reports name timestamps; use them). Then the causal chain: in this dance the faults are usually one chain (anchor not settled → no slot rebuilt → count 1 steps toward the partner → hand climbs to compensate → closed position as a resting state), and saying so is more useful than seven separate complaints.
 - When the tool and the judges' marks disagree, say what the tool cannot see: partner context, the rest of the floor, count-level footwork, genre-specific rhythm.
