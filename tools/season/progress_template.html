@@ -1,0 +1,885 @@
+<title>Slot &amp; Anchor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f5f8; --surface: #ffffff; --surface-2: #eceef3;
+    --ink: #171a26; --ink-2: #4f5567; --muted: #858b9c;
+    --line: #e2e4eb; --line-2: #cdd1db;
+    --accent: #b7791f; --accent-ink: #8a5a14; --accent-soft: #f5ead2;
+    --keep: #2e7d32; --refine: #c62828; --check: #1565c0;
+    --keep-soft: #e3f1e4; --refine-soft: #f9e3e3; --check-soft: #e2ecfa;
+    --dot: #a3a9ba;
+    --r1: #f3e4c3; --r2: #e6cb92; --r3: #d7ae5c; --r4: #c48f2f; --r5: #a8711a; --r6: #82550f; --r7: #5c3b08;
+    --prelim: #d7ae5c; --final: #82550f;
+    --shadow: 0 1px 2px rgba(23, 26, 38, 0.06), 0 8px 24px -16px rgba(23, 26, 38, 0.18);
+    --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+    --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #12141b; --surface: #1a1d26; --surface-2: #232733;
+      --ink: #eceef4; --ink-2: #b9becd; --muted: #8a90a1;
+      --line: #2a2e3a; --line-2: #3a3f4d;
+      --accent: #c08631; --accent-ink: #e2b160; --accent-soft: #33291a;
+      --keep: #3f9a55; --refine: #d9645f; --check: #4d8fdc;
+      --keep-soft: #1c2f21; --refine-soft: #3a2223; --check-soft: #1c2a3f;
+      --dot: #5d6478;
+      --r1: #2b2415; --r2: #4a3a17; --r3: #6a5019; --r4: #8a671d; --r5: #a97f26; --r6: #c99a38; --r7: #e6b85a;
+      --prelim: #e6cb92; --final: #c08631;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -16px rgba(0, 0, 0, 0.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #12141b; --surface: #1a1d26; --surface-2: #232733;
+    --ink: #eceef4; --ink-2: #b9becd; --muted: #8a90a1;
+    --line: #2a2e3a; --line-2: #3a3f4d;
+    --accent: #c08631; --accent-ink: #e2b160; --accent-soft: #33291a;
+    --keep: #3f9a55; --refine: #d9645f; --check: #4d8fdc;
+    --keep-soft: #1c2f21; --refine-soft: #3a2223; --check-soft: #1c2a3f;
+    --dot: #5d6478;
+    --r1: #2b2415; --r2: #4a3a17; --r3: #6a5019; --r4: #8a671d; --r5: #a97f26; --r6: #c99a38; --r7: #e6b85a;
+    --prelim: #e6cb92; --final: #c08631;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -16px rgba(0, 0, 0, 0.6);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent-ink); }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 36px 28px 72px; display: flex; flex-direction: column; gap: 44px; }
+
+  .eyebrow { font: 600 12px/1 var(--body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  h1 { font: 700 56px/0.95 var(--display); letter-spacing: -0.01em; margin: 10px 0 12px; text-wrap: balance; }
+  h2 { font: 700 30px/1 var(--display); margin: 0; text-wrap: balance; }
+  h3 { font: 600 20px/1.1 var(--display); margin: 0; }
+  .lede { color: var(--ink-2); max-width: 62ch; margin: 0; }
+  .sec-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; margin-bottom: 18px; }
+  .sec-head p { margin: 0; color: var(--ink-2); max-width: 70ch; }
+  .hint { color: var(--muted); font-size: 13px; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  header.top { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: end; }
+  .meta { text-align: right; color: var(--muted); font-size: 13px; line-height: 1.7; }
+  .meta b { color: var(--ink-2); font-weight: 500; }
+  @media (max-width: 720px) { header.top { grid-template-columns: 1fr; } .meta { text-align: left; } h1 { font-size: 44px; } }
+
+  /* season strip: bib cards on a rail */
+  .strip { position: relative; overflow-x: auto; padding: 18px 2px 8px; }
+  .strip::before { content: ""; position: absolute; left: 0; right: 0; top: 68px; height: 1px; background: var(--line-2); }
+  .rail { display: flex; gap: 12px; min-width: max-content; position: relative; }
+  .bib { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px 12px; min-width: 122px; box-shadow: var(--shadow);
+         display: flex; flex-direction: column; gap: 6px; text-align: left; transition: transform .15s ease, border-color .15s ease; }
+  .bib:hover { transform: translateY(-2px); }
+  .bib[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow); }
+  .bib .tag { align-self: flex-start; background: #fff; color: #111; border: 2px solid #111; border-radius: 3px; padding: 2px 8px 0; font: 700 26px/1.1 var(--display); letter-spacing: 0.02em; }
+  .bib .ev { font: 600 15px/1.15 var(--body); }
+  .bib .sub { color: var(--muted); font-size: 12px; line-height: 1.35; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 500; line-height: 1.5; background: var(--surface-2); color: var(--ink-2); }
+  .chip.final { background: var(--accent-soft); color: var(--accent-ink); }
+  .chip.keep { background: var(--keep-soft); color: var(--keep); }
+  .chip.refine { background: var(--refine-soft); color: var(--refine); }
+  .chip.check { background: var(--check-soft); color: var(--check); }
+  .chip.grey { background: var(--surface-2); color: var(--muted); }
+
+  /* stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px 12px; display: grid; grid-template-rows: auto auto auto 1fr; gap: 4px; min-height: 150px; }
+  .tile .lbl { font-size: 13px; color: var(--ink-2); line-height: 1.3; }
+  .tile .val { font: 600 34px/1.05 var(--body); }
+  .tile .val small { font-size: 16px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+  .tile .delta { font-size: 13px; display: flex; gap: 6px; align-items: center; color: var(--muted); }
+  .tile .delta b { font-weight: 600; }
+  .tile .delta.good b { color: var(--keep); }
+  .tile .delta.bad b { color: var(--refine); }
+  .tile svg { width: 100%; height: 34px; align-self: end; display: block; overflow: visible; }
+
+  /* trend small multiples */
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 14px 10px; display: flex; flex-direction: column; gap: 4px; }
+  .panel .ttl { font-size: 14px; font-weight: 600; line-height: 1.3; }
+  .panel .sub { font-size: 12px; color: var(--muted); }
+  .panel svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .panel table { width: 100%; font-size: 12px; border-collapse: collapse; }
+  .panel td, .panel th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; }
+  .panel th:first-child, .panel td:first-child { text-align: left; }
+  .toggle { display: inline-flex; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; }
+  .toggle button { background: transparent; border: 0; padding: 5px 12px; font-size: 13px; color: var(--ink-2); }
+  .toggle button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--ink-2); align-items: center; }
+  .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  .legend .sq { border-radius: 2px; }
+  .legend .ln { display: inline-block; width: 18px; height: 0; border-top: 2px dashed var(--accent); margin-right: 6px; vertical-align: 3px; }
+
+  /* heatmap */
+  .heat { display: grid; gap: 3px; font-size: 12px; overflow-x: auto; }
+  .heat .cell { height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 4px; font-weight: 500; }
+  .heat .rowlbl { display: flex; align-items: center; padding-right: 12px; color: var(--ink-2); white-space: nowrap; }
+  .heat .collbl { display: flex; align-items: end; justify-content: center; color: var(--muted); padding-bottom: 6px; text-align: center; line-height: 1.2; }
+  .ramp { display: inline-flex; gap: 2px; margin-left: 8px; vertical-align: middle; }
+  .ramp i { width: 14px; height: 10px; display: inline-block; border-radius: 2px; }
+
+  /* rounds */
+  .rounds { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .bars .row { display: grid; grid-template-columns: 74px 1fr; gap: 8px; align-items: center; font-size: 12px; margin: 6px 0; }
+  .bars .track { display: flex; flex-direction: column; gap: 2px; }
+  .bars .bar { height: 14px; border-radius: 0 4px 4px 0; position: relative; min-width: 2px; }
+  .bars .bar span { position: absolute; left: calc(100% + 6px); top: -2px; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+  .bars .bar.p { background: var(--prelim); } .bars .bar.f { background: var(--final); }
+
+  /* plan */
+  .plan { display: flex; flex-direction: column; gap: 10px; }
+  .item { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line-2); border-radius: 8px; padding: 14px 16px; display: grid; grid-template-columns: 1fr 260px; gap: 10px 22px; }
+  .item[data-status="progress"] { border-left-color: var(--accent); }
+  .item[data-status="holding"] { border-left-color: var(--keep); }
+  @media (max-width: 760px) { .item { grid-template-columns: 1fr; } }
+  .item h3 { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .item .why { color: var(--ink-2); font-size: 14px; margin: 6px 0 8px; }
+  .item ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .item li { display: grid; grid-template-columns: 18px 1fr; gap: 10px; font-size: 14px; align-items: start; }
+  .item li input { margin: 4px 0 0; accent-color: var(--accent); }
+  .item li.done label { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line-2); }
+  .item .side { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+  .item .target { background: var(--surface-2); border-radius: 6px; padding: 8px 10px; display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+  .item .target b { font-size: 18px; font-weight: 600; }
+  .item select { border: 1px solid var(--line-2); border-radius: 6px; padding: 6px 8px; background: var(--surface); }
+  .item textarea { border: 1px solid var(--line-2); border-radius: 6px; padding: 6px 8px; background: var(--surface); min-height: 56px; resize: vertical; }
+  .save { font-size: 12px; color: var(--muted); }
+
+  /* drills */
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+  .filters .fchip { border: 1px solid var(--line-2); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+  .filters .fchip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .filters input, .filters select { border: 1px solid var(--line-2); border-radius: 6px; padding: 6px 10px; background: var(--surface); font-size: 13px; }
+  .filters input { min-width: 200px; }
+  .drills { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .drill { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+  .drill .top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .drill .fix { color: var(--ink); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .drill.open .fix { display: block; }
+  .drill .more { align-self: flex-start; background: none; border: 0; padding: 0; color: var(--accent-ink); font-size: 13px; }
+  .more-row { display: flex; justify-content: center; margin-top: 14px; }
+  .btn { border: 1px solid var(--line-2); background: var(--surface); border-radius: 6px; padding: 8px 16px; font-size: 14px; }
+
+  /* strengths */
+  .ledger details { border-top: 1px solid var(--line); padding: 10px 0; }
+  .ledger details:last-child { border-bottom: 1px solid var(--line); }
+  .ledger summary { cursor: pointer; display: flex; gap: 12px; align-items: baseline; font-weight: 500; list-style: none; }
+  .ledger summary::-webkit-details-marker { display: none; }
+  .ledger summary::before { content: "+"; font: 600 18px/1 var(--display); color: var(--muted); width: 14px; }
+  .ledger details[open] summary::before { content: "–"; }
+  .ledger ul { margin: 8px 0 4px 26px; padding: 0; color: var(--ink-2); font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
+
+  /* table */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  table.songs { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 900px; }
+  table.songs th, table.songs td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  table.songs th:first-child, table.songs td:first-child, table.songs th:nth-child(2), table.songs td:nth-child(2) { text-align: left; }
+  table.songs th { position: sticky; top: 0; background: var(--surface); color: var(--ink-2); font-weight: 500; cursor: pointer; user-select: none; }
+  table.songs th[aria-sort]::after { content: " ↓"; color: var(--accent-ink); }
+  table.songs th[aria-sort="ascending"]::after { content: " ↑"; }
+  table.songs tr.off td { color: var(--muted); }
+  table.songs tbody tr:hover td { background: var(--surface-2); }
+
+  .tip { position: fixed; z-index: 20; pointer-events: none; background: var(--ink); color: var(--bg); padding: 8px 10px; border-radius: 6px; font-size: 12px; line-height: 1.45; max-width: 260px; box-shadow: var(--shadow); opacity: 0; transition: opacity .1s; }
+  .tip b { font-weight: 600; }
+  .method { color: var(--ink-2); font-size: 14px; max-width: 78ch; }
+  .method dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 12px 0 0; }
+  .method dt { font-weight: 600; color: var(--ink); }
+  .method dd { margin: 0; }
+  /* song by song */
+  .srcbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; font-size: 13px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; }
+  .srcbar button { border: 1px solid var(--line-2); background: var(--surface); border-radius: 6px; padding: 5px 12px; font-size: 13px; }
+  .srcbar .ok { color: var(--keep); font-weight: 500; }
+  .songpick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+  .songpick select { border: 1px solid var(--line-2); border-radius: 6px; padding: 6px 10px; background: var(--surface); font-size: 13px; }
+  .songpick .sbtn { border: 1px solid var(--line-2); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+  .songpick .sbtn[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .song { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 18px; align-items: start; }
+  @media (max-width: 860px) { .song { grid-template-columns: 1fr; } }
+  .song .themes { display: flex; flex-direction: column; gap: 10px; }
+  .song .theme { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font-size: 14px; }
+  .song .theme b { display: block; margin-bottom: 4px; }
+  .song .summary { color: var(--ink-2); font-size: 14px; margin: 0 0 12px; }
+  .song .facts { margin: 0 0 10px; }
+  .moments { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
+  .moment { display: grid; grid-template-columns: 62px 1fr; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); border-left: 4px solid var(--line-2); font-size: 14px; align-items: start; }
+  .moment:last-child { border-bottom: 0; }
+  .moment.keep { border-left-color: var(--keep); } .moment.refine { border-left-color: var(--refine); } .moment.question { border-left-color: var(--check); }
+  .moment.zoom { background: var(--surface-2); }
+  .play { border: 1px solid var(--line-2); background: var(--surface); border-radius: 6px; padding: 4px 8px; font: 600 12.5px/1.3 var(--body); white-space: nowrap; }
+  .play:hover { border-color: var(--accent); color: var(--accent-ink); }
+  .moment .counts { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+  .fixtxt { margin-top: 6px; padding: 8px 10px; background: var(--accent-soft); border-radius: 6px; font-size: 13px; line-height: 1.45; }
+  .drill .play { align-self: flex-start; }
+  .songmap-wrap { grid-column: 1 / -1; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px 10px; }
+  .songmap-wrap svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .songmap-wrap .cap { font-size: 12px; color: var(--muted); margin: 6px 0 10px; }
+  .plist { display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px 14px; align-items: center; font-size: 13px; }
+  .plist .k { color: var(--ink-2); }
+  .plist .hint { text-align: right; }
+
+  /* player */
+  .player { position: fixed; right: 20px; bottom: 20px; width: min(460px, calc(100vw - 40px)); background: var(--surface); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 12px 40px -12px rgba(0, 0, 0, .45); z-index: 30; display: flex; flex-direction: column; overflow: hidden; }
+  .player[hidden] { display: none; }
+  .player .ph { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .player .ph b { font-weight: 600; }
+  .player .ph .x { margin-left: auto; border: 0; background: none; font-size: 20px; line-height: 1; color: var(--muted); padding: 2px 6px; }
+  .player video { width: 100%; max-height: 50vh; background: #000; display: block; }
+  .player video[hidden] { display: none; }
+  .player .pbody { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+  .player .pnote { color: var(--ink); line-height: 1.45; max-height: 110px; overflow: auto; }
+  .player .pctl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .player .pctl button { border: 1px solid var(--line-2); background: var(--surface); border-radius: 6px; padding: 4px 10px; font-size: 12px; }
+  .player .pctl button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .player .pick { padding: 14px 12px; background: var(--accent-soft); font-size: 13px; line-height: 1.5; display: flex; flex-direction: column; gap: 8px; }
+  .player .pick[hidden] { display: none; }
+  .player .pick button { align-self: flex-start; border: 1px solid var(--accent); color: var(--accent-ink); background: var(--surface); border-radius: 6px; padding: 6px 12px; font-size: 13px; font-weight: 500; }
+  table.songs td a { color: var(--accent-ink); font-weight: 500; text-decoration: none; border-bottom: 1px solid var(--line-2); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Coach reports · <span id="hdr-count"></span></div>
+      <h1>Slot &amp; Anchor</h1>
+      <p class="lede">What the competition footage says about the dancing, event by event, and what to fix before the next one. Click an event card to compare it with the one before.</p>
+    </div>
+    <div class="meta" id="hdr-meta"></div>
+  </header>
+
+  <section>
+    <div class="strip"><div class="rail" id="rail"></div></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2 id="tiles-title">Where you are</h2><p id="tiles-sub"></p></div>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <div><h2>Trends</h2><p>Each dot is one song. The line joins the event means. Hollow dots are songs left out of the mean because the couple was not confirmed on camera or the model missed the opening.</p></div>
+      <div class="toggle" role="group" aria-label="Chart or table"><button aria-pressed="true" data-view="chart">Charts</button><button aria-pressed="false" data-view="table">Table</button></div>
+    </div>
+    <div class="legend" style="margin-bottom:12px"><span><i class="sw" style="background:var(--accent)"></i>prelim round mean</span><span><i class="sw sq" style="background:var(--accent)"></i>final mean</span><span><i class="sw" style="background:var(--dot)"></i>one song</span><span><i class="ln"></i>target for the next event</span></div>
+    <div class="grid3" id="trends"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><div><h2>What keeps coming back</h2><p>Refine notes per song, grouped by what they are about. Darker means more notes. Slot and anchor have been on every card since October.</p></div><div class="hint">notes per song <span class="ramp" id="ramp"></span></div></div>
+    <div class="heat" id="heat"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><div><h2>The finals tax</h2><p>Two weekends had a prelim and a final on camera. Same vocabulary in both rounds; the structure is what moved.</p></div></div>
+    <div class="rounds" id="rounds"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><div><h2>Next block</h2><p>Ordered by how much each item costs on a judge's card and how long it has been there. Tick drills as you do them; the status and notes are kept for next time.</p></div><span class="save" id="save-state">Not saved yet</span></div>
+    <div class="plan" id="plan"></div>
+  </section>
+
+  <section id="songs-sec">
+    <div class="sec-head"><div><h2>Song by song</h2><p>Every note the coach wrote, in order, with a play button that opens the video two seconds before the moment. Slow-motion looks sit on a grey band with their drill. The videos never leave your Mac.</p></div></div>
+    <div class="srcbar" id="srcbar"></div>
+    <div class="songpick" id="songpick"></div>
+    <div class="song" id="song"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><div><h2>Drill library</h2><p>Every slow-motion fix the coach wrote, tagged by what it addresses. Green ones describe something to keep.</p></div><span class="hint" id="drill-count"></span></div>
+    <div class="filters" id="drill-filters"></div>
+    <div class="drills" id="drills"></div>
+    <div class="more-row" id="drill-more"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><div><h2>What the reports called strengths</h2><p>Per event, so you can see what has stayed on the list.</p></div></div>
+    <div class="ledger" id="ledger"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><div><h2>All songs</h2><p>Click a column to sort. Greyed rows are excluded from the event means.</p></div><label class="hint"><input type="checkbox" id="show-off" checked> show excluded songs</label></div>
+    <div class="tablewrap"><table class="songs" id="songs"></table></div>
+  </section>
+
+  <section class="method">
+    <h2>How the numbers are made</h2>
+    <dl>
+      <dt>Source</dt><dd>One coach report per song (Claude Opus 5 through the local Claude Code CLI): a survey pass at about 3 frames a second, then eight slow-motion looks at 10 fps. Tempo and phrase changes come from the audio, not the model.</dd>
+      <dt>Phrase changes</dt><dd>Boundaries come from the music itself: beat-synced harmony and texture features, a novelty curve, energy changes, and the 8-count grid, with a preference for 32- and 16-count sections. A strict judging pass then reviews a short frame burst at each boundary and credits only a deliberate musical choice (a hit, a stop, a level change, a release, a styling accent, a sharp change of direction or speed). Two decoy windows per song, count 1 of an 8 that is not a phrase change, measure the judge's false-positive rate; the chance level shown under the phrase chart is that rate. Read the hit rate against it. Songs the strict pass has not reached yet are marked as such in Song by song.</dd>
+      <dt>Late or behind the beat</dt><dd>Mentions of late, behind, rushing, or catching up in the slow-motion count notes and the survey notes. On-beat mentions are counted the same way. Rough, but the same rule for every song.</dd>
+      <dt>Stalled seconds</dt><dd>Total length of refine notes about closed position, hugging, or standing in place.</dd>
+      <dt>Dead time at the top</dt><dd>Length of the earliest note that complains about standing or not yet dancing. Zero when nothing was flagged.</dd>
+      <dt>Theme families</dt><dd>Keyword matches on the refine notes; a note can land in more than one family. Treat differences under about one note per song as noise.</dd>
+      <dt>Exclusions</dt><dd>Songs where the model could not confirm the couple (focus under 50%) or never saw the opening are kept in the table but left out of every mean.</dd>
+    </dl>
+  </section>
+</div>
+<div class="tip" id="tip" role="tooltip"></div>
+<div class="player" id="player" hidden>
+  <div class="ph"><b id="p-title"></b><span id="p-time" class="hint"></span><button class="x" id="p-close" aria-label="Close player">×</button></div>
+  <div class="pick" id="p-pick" hidden></div>
+  <video id="p-video" controls playsinline preload="metadata"></video>
+  <div class="pbody">
+    <div class="pnote" id="p-note"></div>
+    <div class="pctl">
+      <button id="p-prev">‹ previous</button><button id="p-next">next ›</button>
+      <span class="hint" style="margin-left:6px">speed</span><button data-rate="0.25">¼×</button><button data-rate="0.5">½×</button><button data-rate="1" aria-pressed="true">1×</button>
+      <button id="p-loop" aria-pressed="true">loop the moment</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="folder-input" webkitdirectory multiple hidden>
+
+<script>
+const DATA = __DATA_JSON__;
+// Set in the local build only: an absolute file:// folder holding <song id>.mp4 for every song.
+const LOCAL_BASE = __LOCAL_BASE__;
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
+const xs = e => e.short.length > 9 ? e.short.slice(0, 8) + "." : e.short;
+const PLAN_SHORT = { "families.posture": "Posture or wide-base notes", "families.connection": "Hand-height notes" };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pct = v => v == null ? "–" : Math.round(v * 100) + "%";
+const one = v => v == null ? "–" : (Math.round(v * 10) / 10).toString();
+const EV = DATA.events, CLIPS = DATA.clips, FAM = DATA.families;
+const evById = Object.fromEntries(EV.map(e => [e.key, e]));
+const famLabel = Object.fromEntries(FAM.map(f => [f.id, f.label]));
+const get = (o, path) => path.split(".").reduce((a, k) => a == null ? a : a[k], o);
+const fmtDate = d => new Date(d + "T12:00:00").toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+const usedClips = key => CLIPS.filter(c => c.event === key && c.used);
+
+const METRICS = [
+  { id: "phrase_rate", label: "Phrase changes acknowledged", short: "Phrase hits", unit: "%", fmt: pct, up: true, target: 0.5 },
+  { id: "keep_share", label: "Notes marked keep", short: "Keep share", unit: "%", fmt: pct, up: true, target: 0.45 },
+  { id: "stall_s", label: "Seconds stalled or in a hug, per song", short: "Stalled", unit: "s", fmt: one, up: false, target: 10 },
+  { id: "opening_s", label: "Dead time before the first pattern", short: "Slow start", unit: "s", fmt: one, up: false, target: 2 },
+  { id: "off_beat", label: "Late or behind-the-beat mentions, per song", short: "Off-beat mentions", unit: "", fmt: one, up: false, target: 2 },
+  { id: "families.anchor", label: "Anchor notes, per song", short: "Anchor notes", unit: "", fmt: one, up: false, target: 4 },
+];
+const TILE_IDS = ["phrase_rate", "keep_share", "stall_s", "off_beat", "families.anchor"];
+
+let selected = EV[EV.length - 1].key;
+let view = "chart";
+
+/* ---------- header ---------- */
+$("#hdr-count").textContent = `${EV.length} events · ${CLIPS.length} songs · ${fmtDate(EV[0].date)} to ${fmtDate(EV[EV.length - 1].date)}`;
+const totalCost = CLIPS.reduce((a, c) => a + c.cost, 0);
+$("#hdr-meta").innerHTML = `<b>Updated</b> ${esc(DATA.generated)}<br><b>Model</b> Claude Opus 5<br><b>Usage so far</b> $${totalCost.toFixed(0)}`;
+
+/* ---------- season strip ---------- */
+function renderRail() {
+  $("#rail").innerHTML = EV.map(e => `
+    <button class="bib" data-key="${e.key}" aria-pressed="${e.key === selected}">
+      <span class="tag num">${esc(e.bib || "·")}</span>
+      <span class="ev">${esc(e.label)}</span>
+      <span class="sub">${fmtDate(e.date)} · ${esc(e.division)} ${esc(e.round.toLowerCase())}</span>
+      <span class="chip ${e.round === "Final" ? "final" : ""}" title="${esc(e.result)}">${esc(e.result_short || e.result || "no result recorded")}</span>
+      <span class="sub">${e.marks ? esc(e.marks) + " · " : ""}${e.n_used}${e.n_used !== e.n_clips ? " of " + e.n_clips : ""} songs</span>
+    </button>`).join("");
+  $("#rail").querySelectorAll(".bib").forEach(b => b.addEventListener("click", () => { selected = b.dataset.key; renderRail(); renderTiles(); }));
+}
+
+/* ---------- tiles ---------- */
+function spark(values, w = 160, h = 34) {
+  const vals = values.map(v => v == null ? 0 : v);
+  const max = Math.max(...vals, 0.0001), min = Math.min(...vals, 0);
+  const x = i => 4 + i * (w - 8) / Math.max(1, vals.length - 1);
+  const y = v => h - 4 - (v - min) / (max - min || 1) * (h - 8);
+  const pts = vals.map((v, i) => `${x(i)},${y(v)}`).join(" ");
+  const last = vals.length - 1;
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+    <polyline points="${pts}" fill="none" stroke="var(--line-2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+    <circle cx="${x(last)}" cy="${y(vals[last])}" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/></svg>`;
+}
+function renderTiles() {
+  const i = EV.findIndex(e => e.key === selected);
+  const cur = EV[i], prev = EV[i - 1];
+  $("#tiles-title").textContent = `Where you are: ${cur.label}, ${cur.round.toLowerCase()}`;
+  $("#tiles-sub").textContent = prev ? `Compared with ${prev.label} ${prev.round.toLowerCase()} (${fmtDate(prev.date)}). Green means it moved the right way.` : "First event on record.";
+  $("#tiles").innerHTML = TILE_IDS.map(id => {
+    const m = METRICS.find(x => x.id === id);
+    const v = get(cur, id), p = prev ? get(prev, id) : null;
+    let delta = "", cls = "";
+    if (p != null && v != null) {
+      const d = v - p; const good = m.up ? d > 0 : d < 0;
+      cls = Math.abs(d) < (m.unit === "%" ? 0.015 : 0.3) ? "" : good ? "good" : "bad";
+      const shown = m.unit === "%" ? `${d > 0 ? "+" : ""}${Math.round(d * 100)} pts` : `${d > 0 ? "+" : ""}${one(d)}${m.unit}`;
+      delta = `<b>${shown}</b> vs ${esc(prev.short)}`;
+    }
+    const series = EV.map(e => get(e, id));
+    return `<div class="tile"><div class="lbl">${esc(m.label)}</div>
+      <div class="val">${m.fmt(v)}${m.unit === "s" ? "<small>s</small>" : ""}</div>
+      <div class="delta ${cls}">${delta || "<span>no earlier event</span>"}</div>${spark(series)}</div>`;
+  }).join("");
+}
+
+/* ---------- trend charts ---------- */
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const k of [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (k * p >= v) return k * p;
+  return 10 * p;
+}
+function trendChart(m) {
+  const W = 340, H = 186, L = 36, R = 14, T = 12, B = 48;
+  const n = EV.length;
+  const means = EV.map(e => get(e, m.id));
+  const allVals = CLIPS.map(c => get(c, m.id)).concat(means, [m.target]).filter(v => v != null);
+  const rawMax = Math.max(...allVals);
+  const yMax = m.unit === "%" ? Math.min(1, niceMax(rawMax * 1.08)) : niceMax(rawMax * 1.08);
+  const x = i => L + i * (W - L - R) / (n - 1);
+  const y = v => T + (H - T - B) * (1 - v / yMax);
+  const ticks = [0, yMax / 2, yMax];
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(m.label)} by event">`;
+  ticks.forEach(t => { s += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--line)" stroke-width="1"/>
+    <text x="${L - 6}" y="${y(t) + 3.5}" font-size="9.5" text-anchor="end" fill="var(--muted)" font-family="var(--body)">${m.unit === "%" ? Math.round(t * 100) + "%" : t}</text>`; });
+  if (m.target != null) s += `<line x1="${L}" x2="${W - R}" y1="${y(m.target)}" y2="${y(m.target)}" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>`;
+  EV.forEach((e, i) => { s += `<text x="${x(i) + 3}" y="${H - B + 12}" font-size="8.5" text-anchor="end" transform="rotate(-42 ${x(i) + 3} ${H - B + 12})" fill="var(--muted)" font-family="var(--body)">${esc(xs(e))}</text>`; });
+  // per-clip dots
+  CLIPS.forEach(c => {
+    const i = EV.findIndex(e => e.key === c.event); const v = get(c, m.id); if (v == null || i < 0) return;
+    const jitter = ((c.clip % 3) - 1) * 4;
+    s += c.used ? `<circle cx="${x(i) + jitter}" cy="${y(Math.min(v, yMax))}" r="3.4" fill="var(--dot)" stroke="var(--surface)" stroke-width="1.5"/>`
+                : `<circle cx="${x(i) + jitter}" cy="${y(Math.min(v, yMax))}" r="3.2" fill="var(--surface)" stroke="var(--dot)" stroke-width="1.5"/>`;
+  });
+  // mean line
+  const pts = EV.map((e, i) => means[i] == null ? null : [x(i), y(means[i])]).filter(Boolean);
+  s += `<polyline points="${pts.map(p => p.join(",")).join(" ")}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  EV.forEach((e, i) => { const v = means[i]; if (v == null) return;
+    const px = x(i), py = y(v);
+    s += e.round === "Final" ? `<rect x="${px - 4}" y="${py - 4}" width="8" height="8" fill="var(--accent)" stroke="var(--surface)" stroke-width="1.5"/>`
+                             : `<circle cx="${px}" cy="${py}" r="4.2" fill="var(--accent)" stroke="var(--surface)" stroke-width="1.5"/>`; });
+  const last = means[n - 1];
+  if (last != null) s += `<text x="${x(n - 1) + 7}" y="${y(last) + 3.5}" font-size="10" font-weight="600" fill="var(--ink)" font-family="var(--body)">${m.fmt(last)}${m.unit === "s" ? "s" : ""}</text>`;
+  // hover columns
+  EV.forEach((e, i) => { const w = (W - L - R) / (n - 1); s += `<rect class="hit" data-ev="${e.key}" data-m="${m.id}" x="${x(i) - w / 2}" y="0" width="${w}" height="${H - B + 6}" fill="transparent"/>`; });
+  s += `</svg>`;
+  return s;
+}
+function trendTable(m) {
+  return `<table><thead><tr><th>Event</th><th>Mean</th><th>Songs</th></tr></thead><tbody>${EV.map(e => {
+    const vals = usedClips(e.key).map(c => m.fmt(get(c, m.id))).join(" · ");
+    return `<tr><td>${esc(e.short)}</td><td class="num">${m.fmt(get(e, m.id))}</td><td class="num">${vals}</td></tr>`; }).join("")}</tbody></table>`;
+}
+function chanceLevel() {
+  const d = EV.reduce((a, e) => a + (e.decoys || 0), 0), h = EV.reduce((a, e) => a + (e.decoy_hits || 0), 0);
+  return d ? { rate: h / d, n: d } : null;
+}
+function renderTrends() {
+  const ch = chanceLevel();
+  $("#trends").innerHTML = METRICS.map(m => {
+    let sub = m.target != null ? (m.up ? "aim for " : "aim for under ") + m.fmt(m.target) + (m.unit === "s" ? "s" : "") : "";
+    if (m.id === "phrase_rate" && ch) sub += ` · chance level ${pct(ch.rate)} (the judge credited that share of ${ch.n} decoy windows that were not phrase changes)`;
+    return `<div class="panel"><div class="ttl">${esc(m.label)}</div><div class="sub">${sub}</div>${view === "chart" ? trendChart(m) : trendTable(m)}</div>`;
+  }).join("");
+}
+$$(".toggle button").forEach(b => b.addEventListener("click", () => { view = b.dataset.view; $$(".toggle button").forEach(x => x.setAttribute("aria-pressed", x === b)); renderTrends(); }));
+
+/* tooltip */
+const tip = $("#tip");
+document.addEventListener("mousemove", ev => {
+  const hit = ev.target.closest && ev.target.closest(".hit, .cell[data-tip], .bar[data-tip]");
+  if (!hit) { tip.style.opacity = 0; return; }
+  let html = "";
+  if (hit.classList.contains("hit")) {
+    const e = evById[hit.dataset.ev]; const m = METRICS.find(x => x.id === hit.dataset.m);
+    const songs = CLIPS.filter(c => c.event === e.key).map(c => `${c.used ? "" : "(excl.) "}${m.fmt(get(c, m.id))}`).join(", ");
+    const chance = m.id === "phrase_rate" && e.decoys ? `<br>Decoys credited: ${e.decoy_hits} of ${e.decoys}` : "";
+    html = `<b>${esc(e.label)} · ${esc(e.round.toLowerCase())}</b><br>${esc(m.short)}: <b>${m.fmt(get(e, m.id))}</b> mean${chance}<br>Songs: ${songs}<br>Result: ${esc(e.result)}`;
+  } else html = hit.dataset.tip;
+  tip.innerHTML = html; tip.style.opacity = 1;
+  const x = Math.min(ev.clientX + 14, window.innerWidth - 280), yy = Math.min(ev.clientY + 14, window.innerHeight - 110);
+  tip.style.left = x + "px"; tip.style.top = yy + "px";
+});
+
+/* ---------- heatmap ---------- */
+function renderHeat() {
+  const steps = ["--r1", "--r2", "--r3", "--r4", "--r5", "--r6", "--r7"];
+  $("#ramp").innerHTML = steps.map(s => `<i style="background:var(${s})"></i>`).join("");
+  const max = Math.max(...EV.flatMap(e => FAM.map(f => e.families[f.id] || 0)));
+  const step = v => Math.min(6, Math.floor((v / max) * 6.999));
+  const inkFor = i => i >= 4 ? "light" : "dark";
+  let h = `<div class="heat" style="grid-template-columns: max-content repeat(${EV.length}, minmax(64px, 1fr))">`;
+  h += `<div></div>` + EV.map(e => `<div class="collbl">${esc(e.short)}</div>`).join("");
+  FAM.forEach(f => {
+    h += `<div class="rowlbl">${esc(f.label)}</div>`;
+    EV.forEach(e => { const v = e.families[f.id] || 0; const st = step(v);
+      const color = inkFor(st) === "light" ? "isLight" : "isDark";
+      h += `<div class="cell num" data-tip="<b>${esc(f.label)}</b><br>${esc(e.short)}: ${one(v)} refine notes per song" style="background:var(${steps[st]});color:${color === "isLight" ? "#fff" : "var(--ink)"}">${one(v)}</div>`; });
+  });
+  $("#heat").outerHTML = h + `</div>`;
+}
+
+/* ---------- rounds ---------- */
+function renderRounds() {
+  const pairs = [["sowswing-novice-prelims", "sowswing-novice-finals"], ["sbdf-intermediate-prelims", "sbdf-intermediate-finals"]];
+  const rows = [["stall_s", "Stalled s", one], ["families.slot", "Slot notes", one], ["families.early", "Led early", one], ["phrase_rate", "Phrase hits", pct], ["patterns", "Patterns", one]];
+  $("#rounds").innerHTML = pairs.map(([p, f]) => { const P = evById[p], F = evById[f]; if (!P || !F) return "";
+    const body = rows.map(([id, lbl, fmt]) => { const a = get(P, id) || 0, b = get(F, id) || 0, mx = Math.max(a, b, 0.001);
+      return `<div class="row"><div>${lbl}</div><div class="track">
+        <div class="bar p" data-tip="<b>${esc(P.short)}</b> ${lbl}: ${fmt(a)}" style="width:${(a / mx) * 78}%"><span>${fmt(a)}</span></div>
+        <div class="bar f" data-tip="<b>${esc(F.short)}</b> ${lbl}: ${fmt(b)}" style="width:${(b / mx) * 78}%"><span>${fmt(b)}</span></div></div></div>`; }).join("");
+    return `<div class="panel bars"><div class="ttl">${esc(P.label)} · ${fmtDate(P.date)}</div>
+      <div class="legend"><span><i class="sw sq" style="background:var(--prelim)"></i>prelim · ${esc(P.result)}</span><span><i class="sw sq" style="background:var(--final)"></i>final · ${esc(F.result)}</span></div>${body}</div>`; }).join("");
+}
+
+/* ---------- plan ---------- */
+// The practice plan. A season-specific one comes from bench/plan.json (same shape as below);
+// without one, these generic items cover the faults the coach flags most often at Novice and
+// Intermediate. Each item may carry a metric id from METRICS or "families.<id>" and a target.
+const DEFAULT_PLAN = [
+  { id: "anchor", title: "Finish the anchor before every lead, then drive count 1", metric: "families.anchor", up: false, target: 4,
+    why: "The most common note at every level: the next lead starts before 5&6 has settled, so there is no stretch to lead from, and count 1 steps toward the partner instead of down the slot.",
+    drills: ["Lane anchor: tape a lane one foot wide, eight slow anchor triples at half tempo, hand at your belt buckle, a fist-sized bend in the elbow. A rep fails if a foot leaves the lane or the elbow straightens.",
+             "No new lead until you feel your partner's weight come back. Count 5-and-6 out loud and start the next 1 only from the stretch.",
+             "Metronome anchors at song tempo: ten sugar pushes in a row with a towel or band between you that never goes slack and never snaps."] },
+  { id: "opening", title: "Be moving on the first 1", metric: "opening_s", up: false, target: 2,
+    why: "Judges watch everyone at the top of the song. Standing through the first phrase is the cheapest mark to lose and the cheapest to fix.",
+    drills: ["Hands joined and quiet before the music, starter step on the first phrase change.",
+             "Cold-start drill: from a dead standstill, be moving on beat 1 of a metronome at song tempo, ten reps, then with a partner."] },
+  { id: "closed", title: "Two counts in closed, then out", metric: "stall_s", up: false, target: 10,
+    why: "Closed position hides the follower, the slot, and the footwork. As a moment it is fine; as a resting state it reads as running out of ideas.",
+    drills: ["Enter closed on 3-4 of the whip and be gone by 5&6. If you are still chest-to-chest on 6, the pattern has stopped.",
+             "When you run out of ideas: sugar push, anchor it. Never stand, never walk in a hold.",
+             "Pick a wall line before the music and return to it after every figure."] },
+  { id: "phrasing", title: "Plan two phrase hits per song", metric: "phrase_rate", up: true, target: 0.5,
+    why: "Read the acknowledgment rate against the chance level under the phrase chart. Hearing the music is rarely the gap; deciding in advance what to do at the change is.",
+    drills: ["Use the song map: two phrase changes per song, chosen in advance, get a held anchor, a clean stop, or a level change. Verify on practice video with the same judge.",
+             "Exit every highlight: hold the shape one extra count, then anchor out of it with stretch instead of going still."] },
+  { id: "posture", title: "Stand tall: bend the knees under a level torso", metric: "families.posture", up: false, target: 1,
+    why: "A wide, low base drops the connection to hip height and leaves nothing to drive count 1 from.",
+    drills: ["Ribs stacked over hips, feet no wider than your hips, compress through ankles and knees. Reset to tall neutral before every count 1.",
+             "Whips at half speed in a two-foot lane: every landing on one foot, ribcage turns before the free foot lands, hand pinned at belt height."] },
+  { id: "connection", title: "One hand height, turns from the forehead", metric: "families.connection", up: false, target: 1.5,
+    why: "A hand that lives at the belt and jumps overhead gives the follower nothing to read in between, so turns look thrown rather than led.",
+    drills: ["Doorframe drill: eight slow underarm turns where the joined hand rises only to the partner's hairline and stays pinned there while your body turns them.",
+             "Index card pinched between fingertips at belt height for a whole song of basics. If it drops, keep dancing and rejoin on the next anchor."] },
+  { id: "presentation", title: "Free arm has a job, partner faces the judges, eyes up", metric: null,
+    why: "Free points: a hand parked in a pocket, a back turned to the panel, eyes down on footwork moments.",
+    drills: ["Eyes on your partner's collarbone during footwork moments; fix the footwork in practice so the eyes can stay up.",
+             "Once a song, stop, open your chest toward your partner and let the judges watch what they are doing."] },
+];
+const PLAN = (Array.isArray(DATA.plan) && DATA.plan.length) ? DATA.plan : DEFAULT_PLAN;
+const PLAN_KEY = "slot-anchor-plan-v1";
+let planState = { items: {} };
+try { planState = JSON.parse(localStorage.getItem(PLAN_KEY) || "null") || planState; } catch (e) {}
+let planDoc = null, saveTimer = null;
+function setSaved(txt) { $("#save-state").textContent = txt; }
+function persistPlan() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try { localStorage.setItem(PLAN_KEY, JSON.stringify(planState)); } catch (e) {}
+    if (planDoc) { try { await planDoc.set({ ...planState, updatedAt: new Date().toISOString() }); setSaved("Saved · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })); return; } catch (e) {} }
+    setSaved("Saved in this browser · " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+  }, 400);
+}
+function renderPlan() {
+  const cur = EV[EV.length - 1];
+  $("#plan").innerHTML = PLAN.map((p, idx) => {
+    const st = planState.items[p.id] || {}; const done = st.drills || {};
+    const m = p.metric ? METRICS.find(x => x.id === p.metric) : null;
+    const now = p.metric ? get(cur, p.metric) : null;
+    const fmt = m ? m.fmt : one;
+    const met = now != null && (p.up ? now >= p.target : now <= p.target);
+    return `<div class="item" data-status="${esc(st.status || "todo")}" data-id="${p.id}">
+      <div><h3><span class="num" style="color:var(--muted);font-weight:600">${idx + 1}</span> ${esc(p.title)}</h3>
+        <p class="why">${esc(p.why)}</p>
+        <ul>${p.drills.map((d, i) => `<li class="${done[i] ? "done" : ""}"><input type="checkbox" id="${p.id}-${i}" data-drill="${i}" ${done[i] ? "checked" : ""}><label for="${p.id}-${i}">${esc(d)}</label></li>`).join("")}</ul></div>
+      <div class="side">
+        ${p.metric ? `<div class="target"><div>${esc(m ? m.short : (PLAN_SHORT[p.metric] || p.metric))} at ${esc(cur.short)}<br><span class="hint">target ${p.up ? "≥" : "≤"} ${fmt(p.target)}${m && m.unit === "s" ? "s" : ""}</span></div><b class="num" style="color:${met ? "var(--keep)" : "var(--ink)"}">${fmt(now)}${m && m.unit === "s" ? "s" : ""}</b></div>` : `<div class="target"><div>No single number for this one<br><span class="hint">judge it on video</span></div></div>`}
+        <select aria-label="Status"><option value="todo" ${!st.status || st.status === "todo" ? "selected" : ""}>Not started</option><option value="progress" ${st.status === "progress" ? "selected" : ""}>Working on it</option><option value="holding" ${st.status === "holding" ? "selected" : ""}>Holding under pressure</option></select>
+        <textarea placeholder="Notes from practice or your coach" aria-label="Notes">${esc(st.note || "")}</textarea>
+      </div></div>`;
+  }).join("");
+  $$("#plan .item").forEach(el => {
+    const id = el.dataset.id; const st = () => (planState.items[id] = planState.items[id] || { drills: {} });
+    $$("input[type=checkbox]", el).forEach(cb => cb.addEventListener("change", () => { st().drills = st().drills || {}; st().drills[cb.dataset.drill] = cb.checked; cb.closest("li").classList.toggle("done", cb.checked); persistPlan(); }));
+    $("select", el).addEventListener("change", ev => { st().status = ev.target.value; el.dataset.status = ev.target.value; persistPlan(); });
+    $("textarea", el).addEventListener("input", ev => { st().note = ev.target.value; persistPlan(); });
+  });
+}
+(async () => {
+  try {
+    const db = window.claude && window.claude.use ? await window.claude.use("db") : null;
+    if (!db) { setSaved(localStorage.getItem(PLAN_KEY) ? "Loaded from this browser" : "Saved in this browser as you go"); return; }
+    planDoc = db.doc("plan/state");
+    planDoc.onSnapshot(snap => { if (snap.exists) { const d = snap.data(); planState = { items: d.items || {} }; renderPlan(); setSaved("Synced" + (d.updatedAt ? " · last change " + new Date(d.updatedAt).toLocaleString() : "")); } else setSaved("Synced · nothing saved yet"); }, () => setSaved("Saved in this browser as you go"));
+  } catch (e) { setSaved("Saved in this browser as you go"); }
+})();
+
+/* ---------- drills ---------- */
+let dFam = "all", dEv = "all", dQ = "", dLimit = 24;
+function renderDrillFilters() {
+  const fams = [["all", "All"], ...FAM.map(f => [f.id, f.label]), ["other", "Other"]];
+  $("#drill-filters").innerHTML = fams.map(([id, l]) => `<button class="fchip" data-fam="${id}" aria-pressed="${id === dFam}">${esc(l)}</button>`).join("") +
+    `<select id="drill-ev" aria-label="Event"><option value="all">All events</option>${EV.map(e => `<option value="${e.key}">${esc(e.label)} ${esc(e.round.toLowerCase())}</option>`).join("")}</select>
+     <input id="drill-q" type="search" placeholder="Search the drills (metronome, tape, whip…)" aria-label="Search drills">`;
+  $$("#drill-filters .fchip").forEach(b => b.addEventListener("click", () => { dFam = b.dataset.fam; dLimit = 24; renderDrillFilters(); renderDrills(); }));
+  $("#drill-ev").value = dEv; $("#drill-q").value = dQ;
+  $("#drill-ev").addEventListener("change", ev => { dEv = ev.target.value; dLimit = 24; renderDrills(); });
+  $("#drill-q").addEventListener("input", ev => { dQ = ev.target.value.trim().toLowerCase(); dLimit = 24; renderDrills(); });
+}
+function renderDrills() {
+  const evOrder = Object.fromEntries(EV.map((e, i) => [e.key, i]));
+  let list = DATA.drills.filter(d => (dFam === "all" || d.family === dFam) && (dEv === "all" || d.event === dEv) && (!dQ || (d.fix + " " + d.reason).toLowerCase().includes(dQ)));
+  list.sort((a, b) => evOrder[b.event] - evOrder[a.event] || b.confidence - a.confidence);
+  $("#drill-count").textContent = `${list.length} of ${DATA.drills.length}`;
+  const glyph = { keep: "🟢", refine: "🔴", question: "🔵" };
+  $("#drills").innerHTML = list.slice(0, dLimit).map(d => { const e = evById[d.event]; const mm = Math.floor(d.time / 60), ss = Math.round(d.time % 60);
+    return `<div class="drill"><div class="top"><span class="chip ${d.kind === "question" ? "check" : d.kind}">${glyph[d.kind] || ""} ${d.kind === "question" ? "check" : d.kind}</span><span>${esc(e.short)} · song ${d.clip.slice(-1)}</span><span class="chip grey">${esc(famLabel[d.family] || "other")}</span></div>
+      <div class="fix">${esc(d.fix)}</div><div style="display:flex;gap:10px;align-items:center"><button class="play" data-clip="${d.clip}" data-t="${d.time}">▶ ${mm}:${String(ss).padStart(2, "0")}</button><button class="more">Show all</button></div></div>`; }).join("") || `<div class="hint">Nothing matches. Clear a filter.</div>`;
+  $$("#drills .drill").forEach(el => { $(".more", el).addEventListener("click", () => { el.classList.toggle("open"); $(".more", el).textContent = el.classList.contains("open") ? "Show less" : "Show all"; });
+    $(".play", el).addEventListener("click", () => openAt($(".play", el).dataset.clip, +$(".play", el).dataset.t)); });
+  $("#drill-more").innerHTML = list.length > dLimit ? `<button class="btn" id="more-btn">Show ${Math.min(24, list.length - dLimit)} more</button>` : "";
+  const mb = $("#more-btn"); if (mb) mb.addEventListener("click", () => { dLimit += 24; renderDrills(); });
+}
+
+/* ---------- strengths ---------- */
+function renderLedger() {
+  $("#ledger").innerHTML = [...EV].reverse().map((e, i) => `<details ${i === 0 ? "open" : ""}><summary>${esc(e.label)} <span class="hint">${esc(e.round.toLowerCase())} · ${fmtDate(e.date)} · ${e.doing_well.length} items</span></summary><ul>${e.doing_well.map(d => `<li>${esc(d)}</li>`).join("")}</ul></details>`).join("");
+}
+
+/* ---------- table ---------- */
+const COLS = [["event", "Event", c => evById[c.event].short + " " + evById[c.event].round.toLowerCase(), false], ["clip", "Song", c => c.clip, true, (v, c) => `<a href="#songs-sec" data-song="${c.id}" title="Open this song's notes">${v}</a>`, true], ["focus", "Focus", c => c.focus, true, pct],
+  ["bpm", "bpm", c => c.bpm, true], ["notes", "Notes", c => c.notes, true], ["keep_share", "Keep", c => c.keep_share, true, pct], ["phr", "Phrases", c => c.phrase_rate, true, (v, c) => `${c.phrase_hits}/${c.phrases}`],
+  ["stall_s", "Stalled s", c => c.stall_s, true, one], ["opening_s", "Slow start s", c => c.opening_s, true, one], ["off_beat", "Off-beat", c => c.off_beat, true], ["on_beat", "On-beat", c => c.on_beat, true],
+  ["fam.slot", "Slot", c => c.families.slot, true], ["fam.anchor", "Anchor", c => c.families.anchor, true], ["fam.connection", "Hand", c => c.families.connection, true], ["fam.closed", "Closed", c => c.families.closed, true],
+  ["pat", "Patterns", c => c.patterns.length, true]];
+let sortKey = null, sortDir = 1;
+function renderTable() {
+  const showOff = $("#show-off").checked;
+  let rows = CLIPS.filter(c => showOff || c.used);
+  if (sortKey) { const col = COLS.find(c => c[0] === sortKey); rows = [...rows].sort((a, b) => { const va = col[2](a), vb = col[2](b); return (va > vb ? 1 : va < vb ? -1 : 0) * sortDir; }); }
+  $("#songs").innerHTML = `<thead><tr>${COLS.map(c => `<th data-k="${c[0]}" ${sortKey === c[0] ? `aria-sort="${sortDir > 0 ? "ascending" : "descending"}"` : ""}>${esc(c[1])}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(c => `<tr class="${c.used ? "" : "off"}" title="${esc(c.themes.join(" · "))}">${COLS.map(col => { const v = col[2](c); const shown = col[4] ? col[4](v, c) : v;
+      const extra = col[0] === "clip" && !c.used ? ` <span class="chip grey">${esc(c.exclude_reason)}</span>` : "";
+      return `<td class="${col[3] ? "num" : ""}">${shown == null ? "–" : col[5] ? shown : esc(shown)}${extra}</td>`; }).join("")}</tr>`).join("")}</tbody>`;
+  $$("#songs th").forEach(th => th.addEventListener("click", () => { const k = th.dataset.k; if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = 1; } renderTable(); }));
+  $$("#songs a[data-song]").forEach(a => a.addEventListener("click", () => { const c = clipById[a.dataset.song]; songEv = c.event; songId = c.id; renderSongPick(); renderSong(); }));
+}
+$("#show-off").addEventListener("change", renderTable);
+
+/* ---------- video: local folder, player, song by song ---------- */
+const clipById = Object.fromEntries(CLIPS.map(c => [c.id, c]));
+const IS_LOCAL = location.protocol === "file:";
+const GLYPH = { keep: "🟢", refine: "🔴", question: "🔵" };
+const mmss = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+const files = new Map(), urls = new Map();   // song id -> {file, where}
+let folderNames = [], pendingHandle = null;
+// Folders never worth descending into when looking for videos.
+const SKIP_DIRS = new Set([".git", ".venv", "node_modules", ".claude", "__pycache__", ".pytest_cache", "dist", "build", "strips", "share"]);
+const idb = {
+  open: () => new Promise((res, rej) => { const r = indexedDB.open("slot-anchor", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }),
+  get: async k => { const db = await idb.open(); return new Promise((res, rej) => { const t = db.transaction("kv").objectStore("kv").get(k); t.onsuccess = () => res(t.result); t.onerror = () => rej(t.error); }); },
+  set: async (k, v) => { const db = await idb.open(); return new Promise((res, rej) => { const t = db.transaction("kv", "readwrite").objectStore("kv").put(v, k); t.onsuccess = () => res(); t.onerror = () => rej(t.error); }); },
+};
+const isVideo = n => /\.(mov|mp4|m4v)$/i.test(n);
+const stemOf = n => n.replace(/\.(mov|mp4|m4v)$/i, "");
+function resetFiles() { files.clear(); urls.forEach(u => URL.revokeObjectURL(u)); urls.clear(); folderNames = []; }
+function addFile(stem, file, where) {
+  // A lighter H.264 copy from a "proxies" folder wins over an original; otherwise first found wins.
+  const prev = files.get(stem);
+  if (prev && !(/proxies/i.test(where) && !/proxies/i.test(prev.where))) return;
+  files.set(stem, { file, where });
+  if (urls.has(stem)) { URL.revokeObjectURL(urls.get(stem)); urls.delete(stem); }
+}
+async function walkHandle(handle, where, depth) {
+  for await (const [name, h] of handle.entries()) {
+    if (h.kind === "file") { if (isVideo(name)) addFile(stemOf(name), await h.getFile(), where); }
+    else if (depth < 3 && !SKIP_DIRS.has(name) && !name.startsWith(".")) await walkHandle(h, where + "/" + name, depth + 1);
+  }
+}
+async function useDirHandle(handle, merge) {
+  if (!merge) resetFiles();
+  await walkHandle(handle, handle.name, 0);
+  if (!folderNames.includes(handle.name)) folderNames.push(handle.name);
+  pendingHandle = null; renderSrcBar();
+  if (typeof songId !== "undefined" && songId) renderSong();
+  if (current) openMoment(current.clipId, current.idx);
+}
+async function pickFolder(merge) {
+  if (window.showDirectoryPicker) {
+    try { const h = await window.showDirectoryPicker({ mode: "read" }); await useDirHandle(h, !!merge); try { await idb.set("videoDir", h); } catch (e) {} return; }
+    catch (e) { if (e && e.name === "AbortError") return; }
+  }
+  $("#folder-input").dataset.merge = merge ? "1" : ""; $("#folder-input").click();
+}
+$("#folder-input").addEventListener("change", ev => {
+  if (ev.target.dataset.merge !== "1") resetFiles();
+  let root = "folder";
+  for (const f of ev.target.files) {
+    const parts = (f.webkitRelativePath || f.name).split("/"); root = parts[0] || root;
+    if (parts.slice(1, -1).some(p => SKIP_DIRS.has(p) || p.startsWith("."))) continue;   // walks subfolders, skips junk
+    if (isVideo(f.name)) addFile(stemOf(f.name), f, parts.slice(0, -1).join("/"));
+  }
+  if (!folderNames.includes(root)) folderNames.push(root);
+  renderSrcBar(); if (typeof songId !== "undefined" && songId) renderSong(); if (current) openMoment(current.clipId, current.idx);
+});
+async function reconnect() {
+  try { const h = pendingHandle || await idb.get("videoDir"); if (!h) return pickFolder(false);
+    const p = await h.requestPermission({ mode: "read" }); if (p !== "granted") return; await useDirHandle(h, false); } catch (e) { pickFolder(false); }
+}
+function urlFor(clip) {
+  const f = files.get(clip.id);
+  if (f) { if (!urls.has(clip.id)) urls.set(clip.id, URL.createObjectURL(f.file)); return urls.get(clip.id); }
+  if (LOCAL_BASE) return LOCAL_BASE + encodeURIComponent(clip.id) + ".mp4";
+  return IS_LOCAL ? "../" + clip.video : null;
+}
+function videoStatus(clip) {
+  const f = files.get(clip.id);
+  if (f) return /proxies/i.test(f.where) ? "proxy" : "original";
+  if (LOCAL_BASE || IS_LOCAL) return "local";
+  return files.size ? "missing" : null;
+}
+function renderSrcBar() {
+  const found = CLIPS.filter(c => files.has(c.id));
+  const nProxy = found.filter(c => /proxies/i.test(files.get(c.id).where)).length;
+  const missing = CLIPS.length - found.length;
+  const where = folderNames.map(n => "“" + esc(n) + "”").join(", ");
+  let html;
+  if (found.length) html = `<span class="ok">✓ ${found.length} of ${CLIPS.length} videos found under ${where}${nProxy ? ` (${nProxy} lighter copies from proxies, ${found.length - nProxy} originals)` : ""}${missing ? `; ${missing} not found` : ""}</span><button id="src-add">Add another folder</button><button id="src-pick">Start over</button>`;
+  else if (LOCAL_BASE) html = `<span class="ok">✓ Playing the lighter copies straight from ${esc(decodeURIComponent(LOCAL_BASE.replace("file://", "")))}</span><button id="src-pick">Use a different folder</button>`;
+  else if (files.size === 0 && folderNames.length) html = `<span>No competition videos found under ${where}. Choose the wcs-analyzer folder itself, or a folder holding the .MOV/.MP4 files or their proxies.</span><button id="src-pick">Choose video folder</button>`;
+  else if (pendingHandle) html = `<span>Your video folder “${esc(pendingHandle.name)}” from last time needs one click to reconnect.</span><button id="src-re">Reconnect</button><button id="src-pick">Choose another folder</button>`;
+  else if (IS_LOCAL) html = `<span>Playing the videos next to this file. If a clip refuses to play, choose the wcs-analyzer folder so the lighter copies in bench/proxies are used.</span><button id="src-pick">Choose video folder</button>`;
+  else html = `<span>This web copy cannot open files on your Mac by path. Easiest: open <b>bench/progress_dashboard_local.html</b> from the wcs-analyzer folder; it has the video paths built in. Or choose the wcs-analyzer folder here once and the page reads the videos from disk (nothing is uploaded).</span><button id="src-pick">Choose video folder</button>`;
+  $("#srcbar").innerHTML = html;
+  $("#src-pick").addEventListener("click", () => pickFolder(false));
+  const add = $("#src-add"); if (add) add.addEventListener("click", () => pickFolder(true));
+  const re = $("#src-re"); if (re) re.addEventListener("click", reconnect);
+}
+
+let current = null, loop = true, rate = 1;
+const pv = $("#p-video");
+function openMoment(clipId, idx) {
+  const clip = clipById[clipId], list = clip.moments; if (!list.length) return;
+  idx = Math.max(0, Math.min(list.length - 1, idx)); const m = list[idx]; current = { clipId, idx };
+  const e = evById[clip.event], label = m.src === "zoom" ? "slow motion" : m.kind === "question" ? "check" : m.kind;
+  $("#p-title").textContent = `${e.label} · ${e.round.toLowerCase()} · song ${clip.clip}`;
+  $("#p-time").textContent = `${mmss(m.t)}${m.end ? "–" + mmss(m.end) : ""} · ${idx + 1} of ${list.length}`;
+  $("#p-note").innerHTML = `<span class="chip ${m.kind === "question" ? "check" : m.kind}">${GLYPH[m.kind] || ""} ${label}</span> ${esc(m.text)}${m.fix ? `<div class="fixtxt">Drill: ${esc(m.fix)}</div>` : ""}`;
+  $("#player").hidden = false;
+  const url = urlFor(clip), pick = $("#p-pick");
+  const showPick = msg => { pick.hidden = false; pick.innerHTML = `${msg}<button id="p-pickbtn">Choose video folder</button>`; $("#p-pickbtn").addEventListener("click", pendingHandle ? reconnect : pickFolder); pv.hidden = true; pv.pause(); };
+  if (!url) return showPick(pendingHandle ? `Reconnect the “${esc(pendingHandle.name)}” folder and this moment plays right here.` : "This web copy cannot open files on your Mac by path. Open bench/progress_dashboard_local.html from the wcs-analyzer folder for one-click video, or point this page at the folder once.");
+  pick.hidden = true; pv.hidden = false;
+  const start = Math.max(0, m.t - 2), end = m.end ? Math.max(m.end, m.t + 2) : m.t + 4;
+  pv.dataset.start = start; pv.dataset.end = end;
+  const seek = () => { pv.currentTime = start; pv.playbackRate = rate; pv.play().catch(() => {}); };
+  if (pv.dataset.src !== url) {
+    pv.dataset.src = url; pv.src = url; pv.addEventListener("loadedmetadata", seek, { once: true });
+    pv.onerror = () => showPick(`This browser could not decode ${esc(clip.video)}. Choose the bench/proxies folder (H.264 copies) or open the page in Chrome or Safari.`);
+  } else seek();
+}
+function openAt(clipId, t) {
+  const list = clipById[clipId].moments; let best = 0;
+  list.forEach((m, i) => { const d = Math.abs(m.t - t), bd = Math.abs(list[best].t - t); if (d < bd - 0.05 || (Math.abs(d - bd) <= 0.05 && m.src === "zoom")) best = i; });
+  openMoment(clipId, best);
+}
+pv.addEventListener("timeupdate", () => { if (loop && pv.dataset.end && pv.currentTime > +pv.dataset.end) pv.currentTime = +pv.dataset.start; });
+$("#p-close").addEventListener("click", () => { pv.pause(); $("#player").hidden = true; });
+$("#p-prev").addEventListener("click", () => current && openMoment(current.clipId, current.idx - 1));
+$("#p-next").addEventListener("click", () => current && openMoment(current.clipId, current.idx + 1));
+$$("#player [data-rate]").forEach(b => b.addEventListener("click", () => { rate = +b.dataset.rate; pv.playbackRate = rate; $$("#player [data-rate]").forEach(x => x.setAttribute("aria-pressed", x === b)); }));
+$("#p-loop").addEventListener("click", () => { loop = !loop; $("#p-loop").setAttribute("aria-pressed", loop); });
+
+let songEv = EV[EV.length - 1].key, songId = null;
+function renderSongPick() {
+  const list = CLIPS.filter(c => c.event === songEv);
+  if (!songId || !list.some(c => c.id === songId)) songId = list[0].id;
+  $("#songpick").innerHTML = `<select id="song-ev" aria-label="Event">${EV.map(e => `<option value="${e.key}" ${e.key === songEv ? "selected" : ""}>${esc(e.label)} ${esc(e.round.toLowerCase())} · ${fmtDate(e.date)}</option>`).join("")}</select>` +
+    list.map(c => `<button class="sbtn" data-id="${c.id}" aria-pressed="${c.id === songId}">Song ${c.clip}${c.used ? "" : " · excluded"}</button>`).join("");
+  $("#song-ev").addEventListener("change", ev => { songEv = ev.target.value; songId = null; renderSongPick(); renderSong(); });
+  $$("#songpick .sbtn").forEach(b => b.addEventListener("click", () => { songId = b.dataset.id; renderSongPick(); renderSong(); }));
+}
+function renderSong() {
+  const c = clipById[songId];
+  const themes = c.themes_full.map(t => `<div class="theme"><b>${esc(t.title)}</b>${esc(t.detail)}</div>`).join("");
+  const rows = c.moments.map((m, i) => `<div class="moment ${m.kind} ${m.src === "zoom" ? "zoom" : ""}">
+      <button class="play" data-i="${i}" title="Play from ${mmss(Math.max(0, m.t - 2))}">▶ ${mmss(m.t)}</button>
+      <div><div class="counts">${m.src === "zoom" ? "slow-motion look" : m.kind === "question" ? "check" : m.kind}${m.counts && m.src !== "zoom" ? " · " + esc(m.counts) : ""}${m.end ? " · to " + mmss(m.end) : ""}</div>${esc(m.text)}${m.fix ? `<div class="fixtxt">Drill: ${esc(m.fix)}</div>` : ""}</div></div>`).join("");
+  const judgeChip = c.phrase_judge === "strict" ? `<span class="chip keep">strict phrase judge</span>` : c.phrase_judge === "in-run" ? `<span class="chip grey">phrases judged in run</span>` : `<span class="chip grey">phrases on old grid</span>`;
+  const vs = videoStatus(c);
+  const vchip = vs === "proxy" ? `<span class="chip keep">video ready · lighter copy</span>` : vs === "original" ? `<span class="chip keep">video ready · original</span>`
+    : vs === "missing" ? `<span class="chip refine">video not found in the chosen folder (${esc(c.video)})</span>` : "";
+  const facts = `<div class="legend facts"><span>🟢 ${c.keep}</span><span>🔴 ${c.refine}</span><span>🔵 ${c.check}</span><span>${c.bpm} bpm</span><span>phrases ${c.phrase_hits}/${c.phrases}</span><span>focus ${pct(c.focus)}</span>${judgeChip}${vchip}</div>`;
+  $("#song").innerHTML = songMapBlock(c) + `<div>${facts}<p class="summary">${esc(c.summary)}</p><div class="themes">${themes}</div>
+    ${c.used ? "" : `<p class="hint" style="margin-top:10px">Excluded from the event means: ${esc(c.exclude_reason)}.</p>`}
+    ${IS_LOCAL && c.folder ? `<p class="hint" style="margin-top:10px"><a href="${esc(c.folder)}/coach_report.html">Open the full report with frame strips</a></p>` : ""}</div>
+    <div class="moments">${rows}</div>`;
+  $$("#song .moment .play").forEach(b => b.addEventListener("click", () => openMoment(c.id, +b.dataset.i)));
+  $$("#song .pb, #song .pb-btn").forEach(el => el.addEventListener("click", () => openTime(c.id, +el.dataset.t, el.dataset.label || "phrase change")));
+}
+
+/* song map: energy, novelty, the 8-count grid and the phrase boundaries the audio analysis found */
+function songMapBlock(c) {
+  const pm = c.phrase_map;
+  if (!pm || !pm.beat_times || !pm.beat_times.length) {
+    return `<div class="songmap-wrap"><div class="cap">No structure analysis for this song yet. The coach judged phrase changes on a fixed 32-count grid: ${(c.old_grid || []).map(mmss).join(", ")}.</div></div>`;
+  }
+  const W = 1100, H = 150, top = 22, bottom = 34, L = 8, R = 8, ph = H - top - bottom;
+  const bt = pm.beat_times, span = Math.max(c.duration || 0, bt[bt.length - 1]) || 1;
+  const x = t => L + (W - L - R) * t / span;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Song map">`;
+  if (pm.energy && pm.energy.length) {
+    const pts = pm.energy.map((v, i) => `${x(bt[i]).toFixed(1)},${(top + ph * (1 - v)).toFixed(1)}`).join(" ");
+    s += `<polygon points="${x(bt[0]).toFixed(1)},${top + ph} ${pts} ${x(bt[pm.energy.length - 1]).toFixed(1)},${top + ph}" fill="var(--accent)" opacity=".2"/>`;
+    const nv = pm.novelty.map((v, i) => `${x(bt[i]).toFixed(1)},${(top + ph * (1 - v)).toFixed(1)}`).join(" ");
+    s += `<polyline points="${nv}" fill="none" stroke="var(--check)" stroke-width="1.2" opacity=".85"/>`;
+  }
+  pm.eights.forEach(t => { s += `<line x1="${x(t).toFixed(1)}" x2="${x(t).toFixed(1)}" y1="${top + ph}" y2="${top + ph + 6}" stroke="var(--muted)" stroke-width="1"/>`; });
+  (c.old_grid || []).forEach(t => { s += `<path d="M${x(t).toFixed(1)},${top + ph + 14} l-4,7 l8,0 z" fill="var(--line-2)"><title>old fixed 32-count grid: ${mmss(t)}</title></path>`; });
+  pm.boundaries.forEach(b => {
+    const strong = b.kind !== "regular" && b.kind !== "start";
+    const col = strong ? "var(--ink)" : "var(--muted)";
+    const label = b.kind === "start" ? "start" : String(b.counts);
+    s += `<g class="pb" data-t="${b.t}" data-label="${esc(label === "start" ? "first phrase" : b.counts + " counts, " + b.kind)}" style="cursor:pointer">
+      <line x1="${x(b.t).toFixed(1)}" x2="${x(b.t).toFixed(1)}" y1="${top - 4}" y2="${top + ph}" stroke="${col}" stroke-width="${(1.2 + 1.6 * b.confidence).toFixed(1)}" opacity="${(0.5 + 0.5 * b.confidence).toFixed(2)}"/>
+      <rect x="${(x(b.t) - 9).toFixed(1)}" y="${top - 12}" width="18" height="${ph + 12}" fill="transparent"><title>${mmss(b.t)} · ${label === "start" ? "first phrase" : b.counts + " counts, " + b.kind} · click to play</title></rect>
+      <text x="${(x(b.t) + 3).toFixed(1)}" y="${top - 8}" font-size="10.5" font-weight="600" fill="${col}" font-family="var(--body)">${label}</text>
+      ${b.judged === true ? `<circle cx="${x(b.t).toFixed(1)}" cy="${top + ph + 3}" r="4" fill="var(--keep)" stroke="var(--surface)" stroke-width="1.5"/>` : b.judged === false ? `<circle cx="${x(b.t).toFixed(1)}" cy="${top + ph + 3}" r="4" fill="var(--refine)" stroke="var(--surface)" stroke-width="1.5"/>` : ""}
+    </g>`;
+  });
+  for (let t = 0; t <= span; t += 15) s += `<text x="${x(t).toFixed(1)}" y="${top + ph + 30}" font-size="9" text-anchor="middle" fill="var(--muted)" font-family="var(--body)">${t}s</text>`;
+  s += `</svg>`;
+  const method = c.phrase_judge === "strict"
+    ? `Judged by the strict pass: each boundary got a burst of frames, alongside ${c.decoys} decoy windows that were not phrase changes, of which the judge credited ${c.decoy_hits}.`
+    : c.phrase_judge === "in-run"
+      ? "Judged during the coach run on these boundaries; the strict pass with decoys has not run on this song yet."
+      : "The coach judged this song on the old fixed 32-count grid (grey triangles); the boundaries below come from the structure analysis run afterwards, so only the ones near an old grid point carry a verdict.";
+  const rows = pm.boundaries.map(b => `<button class="play pb-btn" data-t="${b.t}" data-label="${esc(b.kind === "start" ? "first phrase" : b.counts + " counts, " + b.kind)}">▶ ${mmss(b.t)}</button><span class="k">${b.kind === "start" ? "first phrase" + (b.counts ? "" : "") : `${b.counts} counts · ${esc(b.kind)}`}</span><span class="hint">${Math.round(b.confidence * 100)}%</span><span>${b.judged === true ? "🟢 acknowledged" : b.judged === false ? "🔴 missed" : "<span class='hint'>not judged</span>"}</span>`).join("");
+  return `<div class="songmap-wrap"><div class="ttl" style="font-size:14px;font-weight:600">Song map · ${pm.method === "structure-v2" ? "structure analysis" : esc(pm.method)}</div>
+    <div class="cap">Amber fill is energy, blue line is novelty (how much the harmony and texture change), ticks mark count 1 of each 8, and each line is a phrase boundary labelled with the counts of the section that ends there. Bolder means more confident. ${method} Click a boundary to hear it.</div>
+    ${s}<div class="plist">${rows}</div></div>`;
+}
+function openTime(clipId, t, label) {
+  const clip = clipById[clipId], list = clip.moments; const e = evById[clip.event];
+  let best = 0; list.forEach((m, i) => { if (Math.abs(m.t - t) < Math.abs(list[best].t - t)) best = i; });
+  current = { clipId, idx: best };
+  $("#p-title").textContent = `${e.label} · ${e.round.toLowerCase()} · song ${clip.clip}`;
+  $("#p-time").textContent = `${mmss(t)} · phrase change`;
+  $("#p-note").innerHTML = `<span class="chip grey">♪ ${esc(label)}</span> Listen for the change at ${mmss(t)} and watch whether anything in the dance answers it: a hit, a stop, a change of level or size. Loops from three seconds before to three after.`;
+  $("#player").hidden = false;
+  const url = urlFor(clip), pick = $("#p-pick");
+  if (!url) { pick.hidden = false; pick.innerHTML = `Point the page at your video folder once and this moment plays right here.<button id="p-pickbtn">Choose video folder</button>`; $("#p-pickbtn").addEventListener("click", pendingHandle ? reconnect : pickFolder); pv.hidden = true; return; }
+  pick.hidden = true; pv.hidden = false;
+  const start = Math.max(0, t - 3), end = t + 3;
+  pv.dataset.start = start; pv.dataset.end = end;
+  const seek = () => { pv.currentTime = start; pv.playbackRate = rate; pv.play().catch(() => {}); };
+  if (pv.dataset.src !== url) { pv.dataset.src = url; pv.src = url; pv.addEventListener("loadedmetadata", seek, { once: true }); } else seek();
+}
+
+renderRail(); renderTiles(); renderTrends(); renderHeat(); renderRounds(); renderPlan(); renderDrillFilters(); renderDrills(); renderLedger(); renderTable();
+renderSongPick(); renderSong(); renderSrcBar();
+(async () => { try { const h = await idb.get("videoDir"); if (h && !files.size) { pendingHandle = h; renderSrcBar(); } } catch (e) {} })();
+</script>
