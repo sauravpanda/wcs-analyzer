@@ -7,11 +7,12 @@
 | `focus` | `description`, `confidence` (0..1), `occluded` time ranges. Under 0.5: do not trust the notes. |
 | `summary`, `doing_well`, `work_on` | the overall impression; `work_on` is the single highest-value change |
 | `themes` | 2 to 4 items with `title`, `detail`, `examples` (seconds); what a judge would write on the card |
-| `notes` | every few seconds: `time`, `end_time`, `kind` (`keep` / `refine` / `question`), `counts`, `note`, `strip` |
+| `notes` | every few seconds: `time`, `end_time`, `kind` (`keep` / `refine` / `question`), `counts`, `note`, `strip`, `tags` (theme families: `count1`, `rhythm`, `body`, `free_arm`, `pulse`, `connection`, `anchor`, `slot`, `closed`, `phrasing`, `early`, `posture`, `face`) |
+| `movement` | the survey's quality-of-movement read: `count1` (`strike-and-transfer` / `falls back` / `mixed` / `not visible`), `rhythm` (`matches the song` / `straight on a swung song` / `swung on a straight song` / `not visible`), `body` (one sentence on the torso and the free arm) |
 | `phrases` | one per boundary: `time`, `acknowledged` (true / false / null = not judged), `how`, and after strict judging `counts`, `kind`, `response`, `timing`, `offset_beats`, `confidence`, `visibility` |
 | `phrase_decoys`, `phrase_judge_calibration` | strict judge only: decoy verdicts and `{real, real_hit, decoys, decoys_hit}` |
-| `zooms` | slow-motion looks: `time`, `reason`, `count_notes` (per beat), `diagnosis`, `fix`, `confidence`, `visibility`, `kind`, `strip` |
-| `music` | `bpm`, `music_start`, `phrase_starts`, `method` (`fixed-32`, `structure-v2`, `structure-v2+judge`), `phrase_map` |
+| `zooms` | slow-motion looks: `time`, `reason`, `count_notes` (per beat), `diagnosis`, `fix`, `confidence`, `visibility`, `kind`, `strip`, plus `count1` (strike-and-transfer or falls back), `rhythm` (straight or swung triples) and `tags` |
+| `music` | `bpm`, `music_start`, `phrase_starts`, `method` (`fixed-32`, `structure-v2`, `structure-v2+judge`), `phrase_map`, `feel` (`straight` / `light swing` / `swung` / empty when unmeasurable) and `swing_ratio` (where the off-beat sits in the beat: 0.50 straight, about 0.67 triplet swing) |
 | `patterns` | canonical pattern names seen |
 | `warnings` | reduced survey rate, coverage gaps, tempo repairs, judging notes |
 | `usage` | tokens and estimated cost |
@@ -44,6 +45,10 @@ survey saw the opening):
 | `off_beat`, `on_beat` | mentions of late / behind / rushing and of on-the-beat in the count notes and survey notes | rough; direction only |
 | `families.<id>` | refine notes matching each theme family's keywords | a note can land in several families |
 | `patterns` | distinct pattern names per song | vocabulary size, not quality |
+| `feel`, `swing_ratio` | the song's rhythm feel from the audio | read the triples against it; an empty feel means the song had no audible subdivision or the off-beat landed too early to trust (ratio under 0.45) |
+| `count1_fallback`, `count1_obs` | slow-motion looks where count 1 fell back, over looks that could see count 1; per event pooled as `count1_rate` | under about five looks per event is noise; direction only |
+| `rhythm_mismatch`, `rhythm_obs` | looks whose triples contradict the song's feel (straight on swung, swung on straight) | direction only |
+| `count1`, `rhythm`, `body` (per song) | the survey's `movement` read | quote the words; do not average them |
 
 Theme families and what they mean on the floor:
 
@@ -54,6 +59,23 @@ Theme families and what they mean on the floor:
 - `phrasing`: phrase changes pass unmarked.
 - `early`: led before the follower was ready; hesitations, guessing.
 - `posture`: eyes down, chin drops, wide low base, sinking.
+- `count1`: the lead falls back onto the count-1 foot before the beat instead of striking and transferring, so the 1 looks rushed and the pattern starts before the follower is sent.
+- `rhythm`: the triples do not match the song (straight, even triples on a swung song read as anti-swung; the middle step should be late).
+- `body`: the torso is a rigid frame carried over the footwork; no contra-body rotation, wave through the spine, or head arriving last.
+- `free_arm`: the free arm hangs, parks on the hip or in a pocket, instead of adding energy, slowing a moment, or finishing a rotation.
+- `pulse`: no visible pulse on the main beats, or a stiff one.
+
+Reports from before these families existed carry no tags; their counts come from keywords
+alone and run low, so compare tagged events with tagged events.
+
+## Floor and ceiling
+
+A judge's mark is set by the floor of the dance: what happens in every ordinary pattern. The
+count-1 step (strike and transfer on the beat, not a fall back before it), the rhythm against
+the song's feel, whether the torso and free arm take part, connection height and the slot are
+floor items and belong at the top of a read-out. Phrase hits, held pictures and tricks raise
+the ceiling; report them, but after the floor. A tool read that leads with the phrase rate has
+the priorities upside down for novice and intermediate.
 
 ## What counts as a difference
 

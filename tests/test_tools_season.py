@@ -23,7 +23,7 @@ pd = _load("progress_data")
 def _report(video: str, *, focus: float = 0.9, keep: int = 2, refine: int = 3, strict: bool = True,
             first_note: float = 3.0, duration: float = 100.0) -> dict:
     notes = [{"time": first_note, "end_time": first_note + 5.0, "kind": "refine", "counts": "before count 1",
-              "note": "You are standing before the dance starts and the slot never forms."}]
+              "note": "You are standing before the dance starts and the slot never forms.", "tags": ["count1"]}]
     # every other note follows the first one, so a late first note means the opening was never seen
     notes += [{"time": first_note + 17.0 + i * 10, "end_time": None, "kind": "refine", "counts": "",
                "note": "The anchor is skipped and the hand rides overhead."} for i in range(refine - 1)]
@@ -39,10 +39,12 @@ def _report(video: str, *, focus: float = 0.9, keep: int = 2, refine: int = 3, s
                     {"time": 42.0, "acknowledged": None, "how": "not judged"}],
         "zooms": [{"time": 20.0, "reason": "no anchor", "count_notes": [{"time": 20.1, "count": "5", "observation": "late"}],
                    "diagnosis": "The anchor is cut short.", "fix": "Tape a lane and anchor in it.", "confidence": 0.6,
-                   "visibility": "clear", "kind": "refine", "strip": "zoom_00.jpg"}],
+                   "visibility": "clear", "kind": "refine", "strip": "zoom_00.jpg",
+                   "count1": "falls back", "rhythm": "straight", "tags": ["anchor", "count1"]}],
         "patterns": ["sugar push", "whip"],
         "music": {"bpm": 100.0, "music_start": 1.0, "phrase_starts": [10.0, 26.0, 42.0],
-                  "method": "structure-v2+judge" if strict else "structure-v2"},
+                  "method": "structure-v2+judge" if strict else "structure-v2", "feel": "swung", "swing_ratio": 0.64},
+        "movement": {"count1": "falls back", "rhythm": "straight on a swung song", "body": "Torso held still."},
         "usage": {"input_tokens": 1, "output_tokens": 1, "estimated_cost": 2.5},
         "warnings": [],
     }
@@ -109,6 +111,10 @@ def test_events_come_from_the_manifest(tmp_path: Path):
     assert out["skipped"] == ["coach_old-clip-not-in-manifest"]
     assert out["plan"][0]["title"] == "Custom item"
     assert out["chance_level"] == {"decoys": 2, "hits": 1, "rate": 0.5}   # pooled over the season's used songs
+    # quality-of-movement tallies, pooled over the used songs' slow-motion looks
+    assert boogie["count1_obs"] == 1 and boogie["count1_fallback"] == 1 and boogie["count1_rate"] == 1.0
+    assert boogie["rhythm_obs"] == 1 and boogie["rhythm_mismatch"] == 1 and boogie["feels"] == {"swung": 1}
+    assert {"count1", "rhythm", "body", "free_arm", "pulse"} <= {f["id"] for f in out["families"]}
 
 
 def test_song_metrics_and_exclusions(tmp_path: Path):
@@ -119,6 +125,11 @@ def test_song_metrics_and_exclusions(tmp_path: Path):
     assert used["used"] and used["clip"] == 1 and used["phrase_judge"] == "strict"
     assert used["opening_s"] == 5.0 and used["families"]["anchor"] == 2 and used["families"]["slot"] == 1
     assert used["stall_s"] == 5.0                                        # "standing" note counts as stalled time
+    assert used["families"]["count1"] == 1                               # counted from the note's tag, not its words
+    assert used["feel"] == "swung" and used["swing_ratio"] == 0.64
+    assert used["count1"] == "falls back" and used["rhythm"] == "straight on a swung song"
+    assert used["count1_fallback"] == 1 and used["count1_obs"] == 1 and used["rhythm_mismatch"] == 1
+    assert used["moments"][0]["tags"] == ["count1"]
     assert by_id["2025-10-boogie-by-the-bay-newcomer-finals-bib42_2"]["exclude_reason"] == "couple not confirmed on camera"
     partial = by_id["2025-08-swingtacular-novice-prelims-bib7_1"]
     assert partial["partial"] and not partial["used"] and "60s" in partial["exclude_reason"]

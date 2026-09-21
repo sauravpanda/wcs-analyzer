@@ -186,13 +186,19 @@ wcs-analyzer coach clip.mp4 --dancers "lead wearing bib 42" --division intermedi
 
 Two passes through the local Claude Code CLI (Opus 5 by default):
 
-1. **Survey** of the whole clip at 3 fps, with tempo, music start, the 8-count grid and the
+1. **Survey** of the whole clip at 3 fps, with tempo, music start, the song's rhythm feel
+   (straight or swung, from where the off-beat sits inside the beat), the 8-count grid and the
    song's real phrase changes from the audio track (see `phrases` below). Produces a focus
    check (which couple the model followed, and how confident it is), an overall impression,
-   two to four themes a judge would notice, a note every few seconds with a strip of frames,
-   and a phrase-acknowledgment table.
+   a quality-of-movement read (how count 1 is taken: strike and transfer on the beat, or a
+   fall back that makes the 1 look rushed; whether the triples match the song's feel; what
+   the torso and free arm do), two to four themes a judge would notice, a note every few
+   seconds with a strip of frames and theme-family tags, and a phrase-acknowledgment table.
+   The prompt weighs what shows in every ordinary pattern above phrase hits: a judge marks
+   the floor of the dance, not its ceiling.
 2. **Zoom** on the flagged moments: short bursts re-extracted at 10 fps, with the beats inside
-   each window, for count-by-count footwork and connection notes.
+   each window, for count-by-count footwork and connection notes, a verdict on count 1
+   (strike-and-transfer or falls back) and on the triples (straight or swung).
 
 Output is a folder `<clip>_coach/` with `coach_report.html` (self-contained, images inline),
 `coach_report.md`, the frame strips, and `coach.json`. Options: `--fps` (survey rate),

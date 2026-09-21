@@ -49,6 +49,20 @@ FAMILIES = [
     dict(id="posture", label="Posture, eyes, wide base",
          keys=["looking down", "chin", "eyes drop", "look at the floor", "posture", "folds", "hunch",
                "squat", "crouch", "straddle", "wide base", "wide stance", "sink", "center drops", "centre drops"]),
+    # quality-of-movement families (added after a private lesson: strike-and-transfer 1s, swung
+    # rhythm, the body and the free arm). Newer reports tag notes directly; the keys catch older prose.
+    dict(id="count1", label="Count 1 falls back or is rushed",
+         keys=["falls back", "fall back onto", "falling back onto", "rock back", "rocks back", "rushed 1", "rushed count 1",
+               "1 is early", "1 lands early", "early on 1", "before the beat", "strike", "weight change, not",
+               "weight transfer", "transfers weight"]),
+    dict(id="rhythm", label="Triples vs the song's feel",
+         keys=["swung", "swing feel", "anti-swung", "straight triple", "straight eighth", "straight rhythm", "triplet",
+               "even triple", "slow-a-slow", "middle step", "dancing straight"]),
+    dict(id="body", label="Upper body held, no wave or contra",
+         keys=["upper body", "torso is held", "torso stays", "torso never", "rigid", "stiff", "spine", "contra",
+               "body roll", "wave", "isolation", "head last", "held frame", "carried over"]),
+    dict(id="free_arm", label="Free arm parked or dead", keys=["free arm", "free hand", "pocket", "dead arm", "arm hangs"]),
+    dict(id="pulse", label="Pulse missing or stiff", keys=["pulse", "groove", "bounce", "no give", "stiff knees"]),
 ]
 
 OFF_BEAT = re.compile(
@@ -119,11 +133,21 @@ def load_events(manifest: Path) -> tuple[list[dict], dict[str, str]]:
     return events, stem_to_key
 
 
-def family_counts(texts: list[str]) -> dict[str, int]:
-    return {f["id"]: sum(1 for t in texts if any(k in t for k in f["keys"])) for f in FAMILIES}
+def family_counts(notes: list[dict]) -> dict[str, int]:
+    """Notes per family: a note counts when the model tagged it with the family or its text
+    carries one of the family's keywords; a note can land in several families."""
+    out: dict[str, int] = {}
+    for f in FAMILIES:
+        out[f["id"]] = sum(1 for n in notes
+                           if f["id"] in (n.get("tags") or []) or any(k in n["note"].lower() for k in f["keys"]))
+    return out
 
 
-def family_of(text: str) -> str:
+def family_of(text: str, tags: list[str] | None = None) -> str:
+    """The single best family for a drill: the first tag the model gave, else the keyword winner."""
+    for tag in tags or []:
+        if any(f["id"] == tag for f in FAMILIES):
+            return tag
     t = text.lower()
     best, best_n = "other", 0
     for f in FAMILIES:
@@ -191,8 +215,17 @@ def clip_metrics(r: dict, event_key: str, folder: Path) -> dict:
     duration = float(r.get("duration") or 0)
     first = min((n["time"] for n in notes), default=0.0)
     partial = bool(notes) and duration > 0 and first > PARTIAL_FRACTION * duration
-    refine_txt = [n["note"].lower() for n in notes if n["kind"] == "refine"]
+    refine_notes = [n for n in notes if n["kind"] == "refine"]
     zoom_obs = [c.get("observation", "") for z in r["zooms"] for c in (z.get("count_notes") or [])]
+    music = r.get("music") or {}
+    movement = r.get("movement") or {}
+    # the slow-motion looks' verdicts on count 1 (strike-and-transfer vs falls back) and on the triples
+    c1 = [str(z.get("count1") or "") for z in r["zooms"]]
+    c1_seen = [v for v in c1 if v and v != "not visible"]
+    rh = [str(z.get("rhythm") or "") for z in r["zooms"]]
+    rh_seen = [v for v in rh if v and v not in ("not visible", "mixed")]
+    feel = music.get("feel") or ""
+    rh_mismatch = sum(1 for v in rh_seen if (feel == "swung" and v == "straight") or (feel == "straight" and v == "swung"))
     survey_txt = [n["note"] for n in notes]
     # Boundaries added by a post-run tempo correction carry acknowledged=None: not judged.
     phrases = [p for p in r["phrases"] if p.get("acknowledged") is not None]
@@ -215,7 +248,11 @@ def clip_metrics(r: dict, event_key: str, folder: Path) -> dict:
                       ("in-run" if (r.get("music") or {}).get("method") == "structure-v2" else "old-grid")),
         stall_s=stall_seconds(notes),
         opening_s=opening_seconds(notes),
-        families=family_counts(refine_txt),
+        families=family_counts(refine_notes),
+        feel=feel, swing_ratio=music.get("swing_ratio") or 0.0,
+        count1=movement.get("count1") or "", rhythm=movement.get("rhythm") or "", body=movement.get("body") or "",
+        count1_obs=len(c1_seen), count1_fallback=sum(1 for v in c1_seen if "fall" in v),
+        rhythm_obs=len(rh_seen), rhythm_mismatch=rh_mismatch,
         off_beat=sum(len(OFF_BEAT.findall(t)) for t in zoom_obs + survey_txt),
         on_beat=sum(len(ON_BEAT.findall(t)) for t in zoom_obs + survey_txt),
         count_obs=len(zoom_obs),
@@ -229,7 +266,8 @@ def clip_metrics(r: dict, event_key: str, folder: Path) -> dict:
         phrase_map=phrase_map_for(r, folder),
         moments=sorted(
             [dict(t=round(float(n["time"]), 1), end=round(float(n["end_time"]), 1) if n.get("end_time") else None,
-                  kind=n["kind"], counts=n.get("counts") or "", text=n["note"], src="note") for n in notes]
+                  kind=n["kind"], counts=n.get("counts") or "", text=n["note"], src="note", tags=n.get("tags") or [])
+             for n in notes]
             + [dict(t=round(float(z["time"]), 1), end=None, kind=z.get("kind") or "refine", counts="slow motion",
                     text=(z.get("diagnosis") or z.get("reason") or "").strip(), fix=(z.get("fix") or "").strip(),
                     src="zoom", confidence=round(float(z.get("confidence") or 0), 2)) for z in r["zooms"]],
@@ -269,7 +307,7 @@ def build(manifest: Path, bench: Path, plan: Path | None = None) -> dict:
             drills.append(dict(
                 clip=stem_of(r["video_name"]), event=stem_to_key[stem_of(r["video_name"])], time=round(float(z["time"]), 1),
                 kind=z.get("kind") or "refine", confidence=round(float(z.get("confidence") or 0), 2),
-                family=family_of(" ".join([z.get("reason") or "", z.get("diagnosis") or "", fix])),
+                family=family_of(" ".join([z.get("reason") or "", z.get("diagnosis") or "", fix]), z.get("tags")),
                 reason=(z.get("reason") or "").strip(), fix=fix,
             ))
 
@@ -296,6 +334,12 @@ def build(manifest: Path, bench: Path, plan: Path | None = None) -> dict:
             refine=mean([c["refine"] for c in used]), notes=mean([c["notes"] for c in used]),
             patterns=mean([len(c["patterns"]) for c in used]),
             families={f["id"]: mean([c["families"][f["id"]] for c in used]) for f in FAMILIES},
+            # pooled over the event's slow-motion looks that could see count 1 / the triples
+            count1_obs=sum(c["count1_obs"] for c in used), count1_fallback=sum(c["count1_fallback"] for c in used),
+            count1_rate=(round(sum(c["count1_fallback"] for c in used) / sum(c["count1_obs"] for c in used), 3)
+                         if sum(c["count1_obs"] for c in used) else None),
+            rhythm_obs=sum(c["rhythm_obs"] for c in used), rhythm_mismatch=sum(c["rhythm_mismatch"] for c in used),
+            feels=dict(Counter(c["feel"] for c in used if c["feel"])),
             themes=[t for c in used for t in c["themes"]],
             doing_well=[d for c in used for d in c["doing_well"]],
         ))

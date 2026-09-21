@@ -392,18 +392,36 @@ them, say so rather than reviewing someone else.
 
 THEN write the review:
 1. overall_impression: two to four sentences on what this dancer does well, then the single \
-most important thing to work on.
+most important thing to work on. Weigh what shows in every ordinary pattern (the count-1 step, \
+the rhythm, how the body moves, connection, slot) above one-off moments and above phrase hits: \
+at novice and intermediate a judge marks the floor of the dance, not its ceiling. Also fill in \
+"movement": how count 1 is taken, whether the rhythm matches the song, and one sentence on the \
+torso and free arm.
 2. themes: two to four high-level themes that would jump out to a judge at this dancer's \
 level. Each theme lists the timestamps that show it.
 3. notes: a note roughly every 3-8 seconds wherever something could be refined OR something is \
 worth keeping ("cool sweep, keep that"). Each note gives the time, what you saw, the counts of \
 the pattern when you can tell (e.g. "count 3 lands far outside the slot, so 4 lands back and \
-5&6 gets fast"), and what to do instead. Prefer causal chains over lists of adjectives. Watch \
-for: the lead's drive down the slot on count 1, connection height jumping high-to-low, looking \
-down, re-establishing the anchor before the next lead, whether the follower was ready, and \
-musical phrasing.
+5&6 gets fast"), and what to do instead. Prefer causal chains over lists of adjectives. Watch for, roughly in order of what it costs \
+on a judge's card:
+- count 1: does the lead strike the floor and transfer the centre over that foot ON the beat, \
+or fall back onto it early so the 1 looks rushed and the pattern starts before the follower \
+has been sent? And does that step drive down the slot?
+- rhythm: do the triples match the song's feel given above (slow-a-slow with the middle step \
+late on a swung song, even on a straight one)? Straight triples on a swung song read as \
+anti-swung. Does the foot roll through or land flat?
+- the body: is the torso part of the movement (contra-body rotation, a wave through the \
+spine, the head arriving last) or a rigid frame carried over good footwork? Is there a visible \
+pulse on the main beats, soft rather than stiff or floppy?
+- the free arm: does it move for a reason (a pendulum adding energy, slowing a moment, \
+finishing a rotation) or hang, park on the hip or in a pocket?
+- connection height jumping high-to-low, looking down, re-establishing the anchor before the \
+next lead, whether the follower was ready, the face (a smile or eye contact reads from the \
+judges' table), and musical phrasing.
+Tag each note with the families it belongs to.
 4. phrases: for each phrase change listed above, did the couple acknowledge it (a hit, a \
-pause, a change of energy) within about a second? Say yes or no and what you saw.
+pause, a change of energy) within about a second? Say yes or no and what you saw. Phrase hits \
+are a ceiling item: report them, but do not let them crowd out the notes on ordinary patterns.
 5. moments_to_zoom: up to {max_zoom} moments (in seconds) where a slow-motion, count-by-count \
 look would add the most: footwork timing, a lost triple, a connection break. Prefer moments \
 that recur.
@@ -413,9 +431,9 @@ that recur.
 Respond with ONLY valid JSON in exactly this shape:
 {{
   "focus": {{"identified": <true|false>, "description": "<who you followed>", "confidence": <0-1>, "occluded": ["<m:ss-m:ss>"]}},
-  "overall_impression": {{"doing_well": ["<...>", "<...>"], "work_on": "<...>", "summary": "<2-4 sentences>"}},
+  "overall_impression": {{"doing_well": ["<...>", "<...>"], "work_on": "<...>", "summary": "<2-4 sentences>", "movement": {{"count1": "<strike-and-transfer|falls back|mixed|not visible>", "rhythm": "<matches the song|straight on a swung song|swung on a straight song|not visible>", "body": "<one sentence on the torso and the free arm>"}}}},
   "themes": [{{"title": "<short>", "detail": "<why a judge at this level cares and what to change>", "examples": [<seconds>, <seconds>]}}],
-  "notes": [{{"time": <seconds>, "end_time": <seconds or null>, "kind": "<refine|keep|question>", "counts": "<e.g. 3-4 of pattern, or empty>", "note": "<what you saw and what to do>"}}],
+  "notes": [{{"time": <seconds>, "end_time": <seconds or null>, "kind": "<refine|keep|question>", "counts": "<e.g. 3-4 of pattern, or empty>", "tags": ["<any of: count1, rhythm, body, free_arm, pulse, connection, anchor, slot, closed, phrasing, early, posture, face>"], "note": "<what you saw and what to do>"}}],
   "phrases": [{{"time": <seconds>, "acknowledged": <true|false>, "how": "<what you saw>"}}],
   "moments_to_zoom": [{{"time": <seconds>, "reason": "<why>"}}],
   "patterns_identified": ["<pattern name only>"]
@@ -471,13 +489,21 @@ What the full-speed review said about this moment: "{survey_note}"
 Work through the window beat by beat. For each beat you can see: which foot the LEAD steps \
 with, where it lands relative to the slot and the body (under the hips, far outside, crossed), \
 whether the foot rolls through or lands flat, where the connection hand is (high, mid, low) and \
-whether it moves abruptly, and whether the follower looks ready for the lead. Then explain the \
-cascade (what caused what) and give one concrete fix. If you cannot tell which beat is count 1, \
-say so and number the beats from the first one in the window.
+whether it moves abruptly, and whether the follower looks ready for the lead. On count 1 in \
+particular, say whether the lead strikes and transfers (the foot lands and the centre arrives \
+over it on the beat) or falls back onto it before the beat so the 1 reads rushed. On the \
+triples (3&4, 5&6) say whether the middle step falls halfway between the beats (straight) or \
+late (swung) and whether that matches the song's feel given above. Say whether the torso and \
+the free arm take part in the movement or are held still. Then explain the cascade (what \
+caused what) and give one concrete fix. If you cannot tell which beat is count 1, say so and \
+number the beats from the first one in the window.
 
 Respond with ONLY valid JSON in exactly this shape:
 {{
   "count_notes": [{{"time": <seconds>, "count": "<1..8 or ?>", "observation": "<one sentence>"}}],
+  "count1": "<strike-and-transfer|falls back|mixed|not visible>",
+  "rhythm": "<straight|swung|mixed|not visible>",
+  "tags": ["<any of: count1, rhythm, body, free_arm, pulse, connection, anchor, slot, closed, phrasing, early, posture>"],
   "diagnosis": "<the causal chain in one to three sentences>",
   "fix": "<one concrete thing to practice>",
   "confidence": <0-1>,
