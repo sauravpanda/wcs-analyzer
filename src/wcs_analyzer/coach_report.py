@@ -28,6 +28,21 @@ def _img_md(rel: str) -> str:
     return f"![frames]({rel})" if rel else ""
 
 
+def _feel_text(music: dict) -> str:
+    """'; swung feel (off-beat at 0.64 of the beat)' or '' when the feel is unknown."""
+    feel = music.get("feel")
+    if not feel:
+        return ""
+    ratio = music.get("swing_ratio")
+    return f"; {feel} feel" + (f" (off-beat at {float(ratio):.2f} of the beat)" if ratio else "")
+
+
+def _movement_parts(report: CoachReport) -> list[tuple[str, str]]:
+    mv = report.movement or {}
+    labels = (("count1", "Count 1"), ("rhythm", "Rhythm"), ("body", "Body"))
+    return [(label, str(mv[k])) for k, label in labels if mv.get(k)]
+
+
 def write_markdown(report: CoachReport, out_dir: Path) -> Path:
     L: list[str] = []
     L.append(f"# Coaching notes: {report.video_name}")
@@ -70,6 +85,9 @@ def write_markdown(report: CoachReport, out_dir: Path) -> Path:
     if report.work_on:
         L.append(f"**🔴 Work on:** {report.work_on}")
         L.append("")
+    if _movement_parts(report):
+        L.append("**Movement:** " + " · ".join(f"{k}: {v}" for k, v in _movement_parts(report)))
+        L.append("")
 
     if report.themes:
         L.append("## Themes a judge would notice")
@@ -87,8 +105,8 @@ def write_markdown(report: CoachReport, out_dir: Path) -> Path:
         L.append("")
         if m.get("bpm"):
             L.append(
-                f"Tempo {m['bpm']:.0f} BPM; music starts around {fmt_time(m['music_start'])}."
-                if m.get("music_start") is not None else f"Tempo {m['bpm']:.0f} BPM."
+                f"Tempo {m['bpm']:.0f} BPM{_feel_text(m)}; music starts around {fmt_time(m['music_start'])}."
+                if m.get("music_start") is not None else f"Tempo {m['bpm']:.0f} BPM{_feel_text(m)}."
             )
             L.append("")
         if report.phrases:
@@ -109,7 +127,8 @@ def write_markdown(report: CoachReport, out_dir: Path) -> Path:
             tag = _KIND_LABEL.get(n.kind, n.kind)
             glyph = _KIND_GLYPH.get(n.kind, "")
             counts = f" _({n.counts})_" if n.counts else ""
-            L.append(f"| {glyph} {span}<br>`{tag}` | {_img_md(('strips/' + n.strip) if n.strip else '')} | {n.note}{counts} |")
+            tags = f" `{' '.join(n.tags)}`" if n.tags else ""
+            L.append(f"| {glyph} {span}<br>`{tag}` | {_img_md(('strips/' + n.strip) if n.strip else '')} | {n.note}{counts}{tags} |")
         L.append("")
 
     if report.zooms:
@@ -132,6 +151,10 @@ def write_markdown(report: CoachReport, out_dir: Path) -> Path:
                 L.append("")
             if z.fix:
                 L.append(f"**🟢 Fix:** {z.fix}")
+                L.append("")
+            zm = [f"count 1: {z.count1}" if z.count1 else "", f"triples: {z.rhythm}" if z.rhythm else ""]
+            if any(zm):
+                L.append("_" + " · ".join(x for x in zm if x) + "_")
                 L.append("")
             meta = []
             if z.visibility:
@@ -260,6 +283,9 @@ def _html_sections(
                  + "".join(f"<li>{e(x)}</li>" for x in report.doing_well) + "</ul></div>")
     if report.work_on:
         H.append(f"<div class='box bad'><strong>Work on:</strong> {e(report.work_on)}</div>")
+    if _movement_parts(report):
+        H.append("<p class='meta'><strong>Movement:</strong> "
+                 + " · ".join(f"{e(k)}: {e(v)}" for k, v in _movement_parts(report)) + "</p>")
 
     if report.themes:
         H.append("<h2>Themes a judge would notice</h2><ol>")
@@ -275,7 +301,7 @@ def _html_sections(
         H.append("<h2>Music and phrasing</h2>")
         if m.get("bpm"):
             start = f"; music starts around {fmt_time(m['music_start'])}" if m.get("music_start") is not None else ""
-            H.append(f"<p>Tempo {m['bpm']:.0f} BPM{start}.</p>")
+            H.append(f"<p>Tempo {m['bpm']:.0f} BPM{e(_feel_text(m))}{start}.</p>")
         song_map = out_dir / "song_map.svg"
         if song_map.exists():
             H.append("<p class='meta'>Song map from the audio: energy in amber, novelty in blue, ticks on count 1 of "
@@ -304,9 +330,10 @@ def _html_sections(
             span = fmt_time(n.time) + (f"–{fmt_time(n.end_time)}" if n.end_time else "")
             tag = _KIND_LABEL.get(n.kind, n.kind)
             counts = f" <span class='meta'>({e(n.counts)})</span>" if n.counts else ""
+            tags = f" <span class='meta'>[{e(', '.join(n.tags))}]</span>" if n.tags else ""
             H.append(
                 f"<tr class='row {e(n.kind)}'><td class='time'>{span}<br><span class='tag {e(n.kind)}'>{e(tag)}</span></td>"
-                f"<td style='width:46%'>{img(n.strip)}</td><td>{e(n.note)}{counts}</td></tr>"
+                f"<td style='width:46%'>{img(n.strip)}</td><td>{e(n.note)}{counts}{tags}</td></tr>"
             )
         H.append("</table>")
 
@@ -333,6 +360,10 @@ def _html_sections(
             if z.fix:
                 H.append(f"<div class='box good'><strong>Fix:</strong> {e(z.fix)}</div>")
             meta = []
+            if z.count1:
+                meta.append(f"count 1: {e(z.count1)}")
+            if z.rhythm:
+                meta.append(f"triples: {e(z.rhythm)}")
             if z.visibility:
                 meta.append(f"visibility {e(z.visibility)}")
             if z.confidence:

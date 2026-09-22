@@ -85,6 +85,7 @@ class CoachNote:
     counts: str = ""
     end_time: float | None = None
     strip: str = ""               # path relative to the report folder
+    tags: list[str] = field(default_factory=list)   # theme families, from NOTE_TAGS
 
 
 @dataclass
@@ -100,6 +101,9 @@ class ZoomResult:
     visibility: str = ""
     strip: str = ""
     kind: str = "refine"          # verdict of the nearest survey note, drives the color
+    count1: str = ""              # strike-and-transfer | falls back | mixed | not visible
+    rhythm: str = ""              # straight | swung | mixed | not visible
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -117,6 +121,7 @@ class CoachReport:
     zooms: list[ZoomResult] = field(default_factory=list)
     patterns: list[str] = field(default_factory=list)
     music: dict = field(default_factory=dict)
+    movement: dict = field(default_factory=dict)   # count1 / rhythm / body, the survey's quality-of-movement read
     usage: UsageTotals = field(default_factory=UsageTotals)
     warnings: list[str] = field(default_factory=list)
     survey_fps: float = 0.0
@@ -131,6 +136,45 @@ class CoachReport:
 
 
 # --------------------------------------------------------------------------- helpers
+
+
+# Theme families a note or zoom can be tagged with; the dashboard tallies them.
+NOTE_TAGS = (
+    "count1", "rhythm", "body", "free_arm", "pulse", "connection", "anchor", "slot", "closed",
+    "phrasing", "early", "posture", "face",
+)
+
+
+_TAG_ALIASES = {"count_1": "count1", "freearm": "free_arm", "free": "free_arm", "hand_height": "connection",
+                "phrase": "phrasing", "musicality": "phrasing", "upper_body": "body", "torso": "body", "eyes": "posture"}
+
+
+def _tags(raw: object) -> list[str]:
+    """Normalise a model-supplied tag list to the known families, in order, without repeats."""
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for t in raw:
+        key = str(t).strip().lower().replace("-", "_").replace(" ", "_")
+        key = _TAG_ALIASES.get(key, key)
+        if key in NOTE_TAGS and key not in out:
+            out.append(key)
+    return out
+
+
+def feel_sentence(audio: AudioFeatures) -> str:
+    """One sentence for the prompts on the song's rhythm feel and what the triples should do."""
+    r = audio.swing_ratio
+    if audio.feel == "swung":
+        return (f"Feel: swung (the off-beat sits at {r:.2f} of the beat), so the triples should be slow-a-slow "
+                "with the middle step late; even, straight triples look anti-swung on this song.")
+    if audio.feel == "straight":
+        return (f"Feel: straight eighths (off-beat at {r:.2f} of the beat), so even triples are right; "
+                "swinging them would fight the song.")
+    if audio.feel == "light swing":
+        return (f"Feel: a light swing (off-beat at {r:.2f} of the beat); either reading of the triples is "
+                "defensible, so look for consistency rather than a mismatch.")
+    return "Feel: the rhythm feel could not be measured from the audio; judge the triples by eye and say so."
 
 
 def fmt_time(seconds: float) -> str:
@@ -332,7 +376,8 @@ def _music_context(audio: AudioFeatures | None, phrase_starts: list[float], phra
         )
     lines = [
         f"MUSIC (from the audio track): tempo {audio.bpm:.0f} BPM; the first beat is at "
-        f"{audio.beat_times[0]:.1f}s, so anything before that is pre-music and not a fault."
+        f"{audio.beat_times[0]:.1f}s, so anything before that is pre-music and not a fault.",
+        feel_sentence(audio),
     ]
     if phrase_map is not None and phrase_map.boundaries:
         lines.append(phrase_context(phrase_map) + " Judges expect the couple to acknowledge these.")
@@ -355,7 +400,8 @@ def _beat_context(audio: AudioFeatures | None, start: float, end: float, phrase_
     for t in beats:
         tag = " (phrase start)" if any(abs(t - p) < 0.05 for p in phrase_starts) else ""
         marks.append(f"{t:.2f}s{tag}")
-    return f"BEATS in this window (from audio, {audio.bpm:.0f} BPM): " + ", ".join(marks)
+    feel = f", {audio.feel} feel" if audio.feel else ""
+    return f"BEATS in this window (from audio, {audio.bpm:.0f} BPM{feel}): " + ", ".join(marks) + "\n" + feel_sentence(audio)
 
 
 def _decode(img_b64: str) -> np.ndarray | None:
@@ -484,6 +530,7 @@ def _parse_survey(data: dict, duration: float) -> tuple[dict, list[CoachNote], l
             kind=kind if kind in ("refine", "keep", "question") else "refine",
             counts=str(raw.get("counts") or ""),
             note=text,
+            tags=_tags(raw.get("tags")),
         ))
     notes.sort(key=lambda n: n.time)
     for n in notes:
@@ -607,6 +654,8 @@ def run_coach(
         "music_start": round(audio.beat_times[0], 2) if audio and audio.beat_times else None,
         "phrase_starts": [round(t, 2) for t in phrase_starts],
         "method": phrase_map.method if phrase_map else "fixed-32",
+        "swing_ratio": audio.swing_ratio if audio else 0.0,
+        "feel": audio.feel if audio else "",
     }
     if phrase_map is not None:
         d = phrase_map.to_dict()
@@ -672,6 +721,8 @@ def run_coach(
         phrases=phrases,
         patterns=patterns,
         music=music,
+        movement={k: str(v) for k, v in (impression.get("movement") or {}).items()
+                  if k in ("count1", "rhythm", "body") and v} if isinstance(impression.get("movement"), dict) else {},
         warnings=warnings,
         survey_fps=eff_fps,
     )
@@ -729,6 +780,9 @@ def run_coach(
                 confidence=_coerce_float(data.get("confidence"), 0.0),
                 visibility=str(data.get("visibility") or ""),
                 kind=nearest_kind(notes, t),
+                count1=str(data.get("count1") or ""),
+                rhythm=str(data.get("rhythm") or ""),
+                tags=_tags(data.get("tags")),
             )
             z.strip = burst_strip(burst, strips_dir / f"zoom_{j:02d}.jpg", kind=z.kind)
             report.zooms.append(z)

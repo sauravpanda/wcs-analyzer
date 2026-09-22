@@ -48,7 +48,8 @@ telling the user what changes.
 2. Run `coach`. It writes `<clip>_coach/` (or `-o DIR`) with `coach.json`, `coach_report.html` (self-contained, strips inline), `coach_report.md`, `strips/`, `song_map.svg`.
 3. Read the **focus check first**. Confidence under 50% means the model could not confirm the couple; the notes may be about someone else. Say so and do not build conclusions on that clip. Between 50 and 80% read the strips before trusting a note.
 4. Check the warnings block. "Survey notes start at 0:55" means the model never saw the opening; rerun with a lower `--fps` (the warning says which). A tempo that looks halved or doubled is folded automatically now, but older reports may carry one.
-5. Summarise for the user in this order: what is working (the reports always find real strengths; lead with them), the causal chain the themes describe, the two or three moments worth watching with timestamps, then the drills. Quote the report's timestamps so the user can scrub to them.
+5. Read the `movement` block next: how count 1 is taken (`strike-and-transfer` or `falls back`, which is what makes a 1 look rushed), whether the triples match the song's feel (`music.feel` is measured from the audio: straight, light swing, swung, or empty when it could not be read), and the sentence on the torso and free arm. Notes and slow-motion looks carry `tags` for the same families. These are floor items: they show in every pattern and cost more on a card than a missed phrase change.
+6. Summarise for the user in this order: what is working (the reports always find real strengths; lead with them), the causal chain the themes describe, the two or three moments worth watching with timestamps, then the drills. Quote the report's timestamps so the user can scrub to them.
 
 Details of every field and how to read the numbers: [references/reading-reports.md](references/reading-reports.md).
 
@@ -97,6 +98,7 @@ Ground each claim in the numbers and the report prose together. Rules that keep 
 - Three songs per event is a small sample. Differences under about one refine note per song, five percentage points of keep share, or ten points of phrase-rate lift over chance are noise; say "flat" or "a tie" rather than inventing a trend or a winner.
 - Compare like with like: prelim with prelim, final with final, and only strictly judged phrase rates with each other. A final with one partner for three songs behaves differently from a prelim with three partners; name that.
 - Put strengths first and keep them specific (the reports name timestamps; use them). Then the causal chain: in this dance the faults are usually one chain (anchor not settled → no slot rebuilt → count 1 steps toward the partner → hand climbs to compensate → closed position as a resting state), and saying so is more useful than seven separate complaints.
+- Floor before ceiling. What shows in every ordinary pattern (the count-1 step, the rhythm against the song's feel, the body and the free arm, connection, slot) comes before one-off moments and before phrase hits. A judge marks the floor of the dance; phrase changes raise its ceiling.
 - When the tool and the judges' marks disagree, say what the tool cannot see: partner context, the rest of the floor, count-level footwork, genre-specific rhythm.
 - Retract cleanly. If a metric changes because the method changed (as the phrase rate did when the fixed grid was replaced), say the earlier reading was an artifact.
 - End with an ordered plan of at most five items, each with one concrete drill, and say which items can change before the next event and which are the year's work.
@@ -107,4 +109,5 @@ Ground each claim in the numbers and the report prose together. Rules that keep 
 - Six clips from one weekend can be several contests. Ask which is which before labelling the manifest; contact sheets (`ffmpeg -vf fps=1/N,tile=4x2`) help the user recognise partners.
 - A clip longer than about 150 seconds is surveyed at a reduced frame rate to fit the CLI's context; the report says so.
 - The keyword tallies behind the dashboard (theme families, off-beat mentions, stalled seconds) are rough by design. Use them for direction, quote the report prose for evidence.
+- `music.feel` comes from where the off-beat sits inside the beat. Songs with no audible subdivision come back with no feel and the prompts say so; do not call triples anti-swung on a song whose feel is unknown.
 - Never put the user's name, event names or bib numbers into code, tests or docs that get committed; the examples use bib 42.

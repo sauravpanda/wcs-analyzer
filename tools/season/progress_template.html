@@ -347,7 +347,9 @@ const LOCAL_BASE = __LOCAL_BASE__;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
 const xs = e => e.short.length > 9 ? e.short.slice(0, 8) + "." : e.short;
-const PLAN_SHORT = { "families.posture": "Posture or wide-base notes", "families.connection": "Hand-height notes" };
+const PLAN_SHORT = { "families.posture": "Posture or wide-base notes", "families.connection": "Hand-height notes",
+  "families.count1": "Count-1 notes (falls back, rushed)", "families.rhythm": "Rhythm notes", "families.body": "Upper-body notes",
+  "families.free_arm": "Free-arm notes", "families.pulse": "Pulse notes", "count1_rate": "Slow-motion looks where count 1 falls back" };
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const pct = v => v == null ? "–" : Math.round(v * 100) + "%";
 const one = v => v == null ? "–" : (Math.round(v * 10) / 10).toString();
@@ -365,6 +367,8 @@ const METRICS = [
   { id: "opening_s", label: "Dead time before the first pattern", short: "Slow start", unit: "s", fmt: one, up: false, target: 2 },
   { id: "off_beat", label: "Late or behind-the-beat mentions, per song", short: "Off-beat mentions", unit: "", fmt: one, up: false, target: 2 },
   { id: "families.anchor", label: "Anchor notes, per song", short: "Anchor notes", unit: "", fmt: one, up: false, target: 4 },
+  { id: "families.count1", label: "Count-1 notes (falls back, rushed), per song", short: "Count-1 notes", unit: "", fmt: one, up: false, target: 1 },
+  { id: "count1_rate", label: "Slow-motion looks where count 1 falls back", short: "1s fall back", unit: "%", fmt: pct, up: false, target: 0.2 },
 ];
 const TILE_IDS = ["phrase_rate", "keep_share", "stall_s", "off_beat", "families.anchor"];
 
@@ -651,7 +655,9 @@ function renderLedger() {
 
 /* ---------- table ---------- */
 const COLS = [["event", "Event", c => evById[c.event].short + " " + evById[c.event].round.toLowerCase(), false], ["clip", "Song", c => c.clip, true, (v, c) => `<a href="#songs-sec" data-song="${c.id}" title="Open this song's notes">${v}</a>`, true], ["focus", "Focus", c => c.focus, true, pct],
-  ["bpm", "bpm", c => c.bpm, true], ["notes", "Notes", c => c.notes, true], ["keep_share", "Keep", c => c.keep_share, true, pct], ["phr", "Phrases", c => c.phrase_rate, true, (v, c) => `${c.phrase_hits}/${c.phrases}`],
+  ["bpm", "bpm", c => c.bpm, true], ["feel", "Feel", c => c.feel || "", false],
+  ["c1", "1s fall back", c => c.count1_obs ? c.count1_fallback / c.count1_obs : null, true, (v, c) => c.count1_obs ? `${c.count1_fallback}/${c.count1_obs}` : null],
+  ["notes", "Notes", c => c.notes, true], ["keep_share", "Keep", c => c.keep_share, true, pct], ["phr", "Phrases", c => c.phrase_rate, true, (v, c) => `${c.phrase_hits}/${c.phrases}`],
   ["stall_s", "Stalled s", c => c.stall_s, true, one], ["opening_s", "Slow start s", c => c.opening_s, true, one], ["off_beat", "Off-beat", c => c.off_beat, true], ["on_beat", "On-beat", c => c.on_beat, true],
   ["fam.slot", "Slot", c => c.families.slot, true], ["fam.anchor", "Anchor", c => c.families.anchor, true], ["fam.connection", "Hand", c => c.families.connection, true], ["fam.closed", "Closed", c => c.families.closed, true],
   ["pat", "Patterns", c => c.patterns.length, true]];
@@ -807,12 +813,12 @@ function renderSong() {
   const themes = c.themes_full.map(t => `<div class="theme"><b>${esc(t.title)}</b>${esc(t.detail)}</div>`).join("");
   const rows = c.moments.map((m, i) => `<div class="moment ${m.kind} ${m.src === "zoom" ? "zoom" : ""}">
       <button class="play" data-i="${i}" title="Play from ${mmss(Math.max(0, m.t - 2))}">▶ ${mmss(m.t)}</button>
-      <div><div class="counts">${m.src === "zoom" ? "slow-motion look" : m.kind === "question" ? "check" : m.kind}${m.counts && m.src !== "zoom" ? " · " + esc(m.counts) : ""}${m.end ? " · to " + mmss(m.end) : ""}</div>${esc(m.text)}${m.fix ? `<div class="fixtxt">Drill: ${esc(m.fix)}</div>` : ""}</div></div>`).join("");
+      <div><div class="counts">${m.src === "zoom" ? "slow-motion look" : m.kind === "question" ? "check" : m.kind}${m.counts && m.src !== "zoom" ? " · " + esc(m.counts) : ""}${m.tags && m.tags.length ? " · " + esc(m.tags.join(", ")) : ""}${m.end ? " · to " + mmss(m.end) : ""}</div>${esc(m.text)}${m.fix ? `<div class="fixtxt">Drill: ${esc(m.fix)}</div>` : ""}</div></div>`).join("");
   const judgeChip = c.phrase_judge === "strict" ? `<span class="chip keep">strict phrase judge</span>` : c.phrase_judge === "in-run" ? `<span class="chip grey">phrases judged in run</span>` : `<span class="chip grey">phrases on old grid</span>`;
   const vs = videoStatus(c);
   const vchip = vs === "proxy" ? `<span class="chip keep">video ready · lighter copy</span>` : vs === "original" ? `<span class="chip keep">video ready · original</span>`
     : vs === "missing" ? `<span class="chip refine">video not found in the chosen folder (${esc(c.video)})</span>` : "";
-  const facts = `<div class="legend facts"><span>🟢 ${c.keep}</span><span>🔴 ${c.refine}</span><span>🔵 ${c.check}</span><span>${c.bpm} bpm</span><span>phrases ${c.phrase_hits}/${c.phrases}</span><span>focus ${pct(c.focus)}</span>${judgeChip}${vchip}</div>`;
+  const facts = `<div class="legend facts"><span>🟢 ${c.keep}</span><span>🔴 ${c.refine}</span><span>🔵 ${c.check}</span><span>${c.bpm} bpm${c.feel ? ", " + esc(c.feel) : ""}</span>${c.count1 ? `<span>1s: ${esc(c.count1)}</span>` : ""}${c.rhythm ? `<span>rhythm: ${esc(c.rhythm)}</span>` : ""}<span>phrases ${c.phrase_hits}/${c.phrases}</span><span>focus ${pct(c.focus)}</span>${judgeChip}${vchip}</div>`;
   $("#song").innerHTML = songMapBlock(c) + `<div>${facts}<p class="summary">${esc(c.summary)}</p><div class="themes">${themes}</div>
     ${c.used ? "" : `<p class="hint" style="margin-top:10px">Excluded from the event means: ${esc(c.exclude_reason)}.</p>`}
     ${IS_LOCAL && c.folder ? `<p class="hint" style="margin-top:10px"><a href="${esc(c.folder)}/coach_report.html">Open the full report with frame strips</a></p>` : ""}</div>

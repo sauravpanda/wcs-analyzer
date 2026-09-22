@@ -49,20 +49,24 @@ def _frames(n: int = 30, fps: float = 3.0) -> FrameData:
 def _audio(n_beats: int = 96) -> AudioFeatures:
     beats = [0.5 * i for i in range(n_beats)]
     strengths = [1.0 if i % 32 == 5 else 0.2 for i in range(n_beats)]
-    return AudioFeatures(bpm=120.0, beat_times=beats, beat_strengths=strengths, duration=beats[-1] + 0.5)
+    return AudioFeatures(bpm=120.0, beat_times=beats, beat_strengths=strengths, duration=beats[-1] + 0.5,
+                         swing_ratio=0.66, feel="swung")
 
 
 SURVEY = {
     "focus": {"identified": True, "description": "lead in white shirt, bib 42", "confidence": 0.8, "occluded": ["0:41-0:44"]},
     "overall_impression": {"doing_well": ["natural pulse", "clean foot strikes"], "work_on": "drive down the slot on 1",
-                           "summary": "Solid basics with a strong groove."},
+                           "summary": "Solid basics with a strong groove.",
+                           "movement": {"count1": "falls back", "rhythm": "straight on a swung song",
+                                        "body": "Torso held still; the free arm is parked.", "extra": "ignored"}},
     "themes": [
         {"title": "Look up", "detail": "Eyes drop before each lead.", "examples": [6.0, 18.0]},
         {"title": "Drive on 1", "detail": "First step lands sideways.", "examples": [13.0]},
     ],
     "notes": [
         {"time": 6.0, "end_time": None, "kind": "refine", "counts": "", "note": "Looking down before the lead."},
-        {"time": 13.0, "end_time": 14.0, "kind": "refine", "counts": "1-2 of pattern", "note": "Left foot points at the follow; direction ambiguous."},
+        {"time": 13.0, "end_time": 14.0, "kind": "refine", "counts": "1-2 of pattern", "note": "Left foot points at the follow; direction ambiguous.",
+         "tags": ["Count-1", "slot", "bogus", "slot"]},
         {"time": 4.0, "end_time": None, "kind": "keep", "counts": "", "note": "Cool sweep, keep that."},
         {"time": -3, "note": "negative time, dropped"},
         {"time": 8.0, "note": ""},
@@ -81,6 +85,9 @@ ZOOM = {
     "fix": "Drive straight down the slot on 1.",
     "confidence": 0.7,
     "visibility": "clear",
+    "count1": "falls back",
+    "rhythm": "straight",
+    "tags": ["count1", "rhythm"],
 }
 
 
@@ -206,14 +213,25 @@ class TestRunCoach:
         assert report.patterns == ["sugar push", "whip"]
         assert not report.focus_uncertain and report.warnings == []
         assert self.cli.call_count == 3
-        # The survey prompt carries the music context and the focus instruction
+        # The survey prompt carries the music context, the song's feel, and the focus instruction
         survey_prompt = self.cli.call_args_list[0][0][1]
         assert "120 BPM" in survey_prompt and "phrase changes" in survey_prompt
         assert "confirm which couple" in survey_prompt
-        # The zoom prompt carries the beats inside its window
+        assert "Feel: swung (the off-beat sits at 0.66 of the beat)" in survey_prompt and "slow-a-slow" in survey_prompt
+        assert "strike the floor and transfer" in survey_prompt and "free arm" in survey_prompt
+        # The zoom prompt carries the beats inside its window and the feel
         zoom_prompt = self.cli.call_args_list[1][0][1]
-        assert "BEATS in this window" in zoom_prompt
+        assert "BEATS in this window" in zoom_prompt and "swung feel" in zoom_prompt
+        assert "falls back onto it before the beat" in zoom_prompt
         assert (self.out / "coach.json").exists()
+        # The quality-of-movement read, tags and the song's feel are kept
+        assert report.music["feel"] == "swung" and report.music["swing_ratio"] == 0.66
+        assert report.movement == {"count1": "falls back", "rhythm": "straight on a swung song",
+                                   "body": "Torso held still; the free arm is parked."}
+        assert report.notes[2].tags == ["count1", "slot"]                # normalised, unknown and repeats dropped
+        assert report.notes[0].tags == []
+        assert report.zooms[0].count1 == "falls back" and report.zooms[0].rhythm == "straight"
+        assert report.zooms[0].tags == ["count1", "rhythm"]
 
     def test_low_focus_confidence_is_flagged_first(self, tmp_path: Path):
         survey = json.loads(json.dumps(SURVEY))
@@ -250,6 +268,21 @@ class TestRunCoach:
         assert isinstance(loaded.zooms[0], ZoomResult) and loaded.zooms[0].fix == ZOOM["fix"]
         assert loaded.usage.input_tokens == report.usage.input_tokens
         assert loaded.music == report.music
+        assert loaded.movement == report.movement and loaded.notes[2].tags == ["count1", "slot"]
+        assert loaded.zooms[0].count1 == "falls back"
+
+    def test_old_coach_json_without_movement_fields_still_loads(self, tmp_path: Path):
+        self._run(tmp_path)
+        data = json.loads((self.out / "coach.json").read_text())
+        data.pop("movement")
+        for n in data["notes"]:
+            n.pop("tags")
+        for z in data["zooms"]:
+            for k in ("count1", "rhythm", "tags"):
+                z.pop(k)
+        (self.out / "coach.json").write_text(json.dumps(data))
+        loaded = load_report(self.out)
+        assert loaded.movement == {} and loaded.notes[0].tags == [] and loaded.zooms[0].count1 == ""
 
     def test_division_and_dancers_reach_prompt(self, tmp_path: Path):
         self._run(tmp_path, dancers="lead wearing bib 42", division="intermediate")
@@ -404,3 +437,18 @@ class TestReports:
         report = CoachReport(video_name="x.mp4", duration=0.0, model="claude-opus-5")
         md_path, html_path = write_reports(report, tmp_path)
         assert md_path.exists() and html_path.exists()
+
+def test_report_shows_feel_movement_and_tags(tmp_path: Path):
+    report = CoachReport(
+        video_name="clip.mp4", duration=10.0, model="claude-opus-5",
+        music={"bpm": 100.0, "music_start": 1.0, "phrase_starts": [], "feel": "swung", "swing_ratio": 0.64},
+        movement={"count1": "falls back", "rhythm": "straight on a swung song", "body": "Torso held still."},
+        notes=[CoachNote(time=1.0, note="Falls back onto the left foot before the beat.", tags=["count1"])],
+        zooms=[ZoomResult(time=1.0, reason="the first 1", count1="falls back", rhythm="straight", fix="Strike and transfer.")],
+    )
+    texts = [p.read_text() for p in write_reports(report, tmp_path)]
+    for text in texts:
+        assert "swung feel (off-beat at 0.64 of the beat)" in text
+        assert "Count 1: falls back" in text and "Rhythm: straight on a swung song" in text
+        assert "triples: straight" in text
+    assert any("`count1`" in t for t in texts) and any("[count1]" in t for t in texts)

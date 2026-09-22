@@ -1,8 +1,9 @@
 """Tests for audio beat context formatting."""
 
+import numpy as np
 import pytest
 
-from wcs_analyzer.audio import AudioFeatures, fold_tempo, format_beat_context
+from wcs_analyzer.audio import AudioFeatures, describe_feel, fold_tempo, format_beat_context, swing_ratio
 
 
 @pytest.mark.parametrize("raw, expected", [
@@ -41,3 +42,43 @@ def test_format_beat_context_no_beats():
     audio = AudioFeatures(bpm=120.0, beat_times=[], beat_strengths=[], duration=5.0)
     result = format_beat_context(audio, 0.0, 5.0)
     assert "Beats in segment: 0" in result
+
+# --------------------------------------------------------------------------- rhythm feel
+
+
+
+def _onsets(offbeat, n_beats: int = 24, beat: float = 0.5, dt: float = 0.01):
+    """An onset envelope with a spike on every beat and, optionally, a weaker one at `offbeat`
+    of the way to the next beat (0.5 = straight eighths, 2/3 = triplet swing)."""
+    times = np.arange(0.0, n_beats * beat, dt)
+    env = np.zeros_like(times)
+    beats = [i * beat for i in range(n_beats)]
+    for b in beats:
+        env[int(round(b / dt))] = 1.0
+        if offbeat is not None:
+            k = int(round((b + offbeat * beat) / dt))
+            if k < len(env):
+                env[k] = 0.6
+    return env, times, beats
+
+
+def test_swing_ratio_reads_straight_and_swung_offbeats():
+    env, times, beats = _onsets(0.5)
+    assert swing_ratio(env, times, beats) == pytest.approx(0.5, abs=0.03)
+    env, times, beats = _onsets(2 / 3)
+    assert swing_ratio(env, times, beats) == pytest.approx(0.667, abs=0.03)
+
+
+def test_swing_ratio_is_unknown_without_offbeats_or_enough_beats():
+    env, times, beats = _onsets(None)
+    assert swing_ratio(env, times, beats) == 0.0          # nothing between the beats
+    env, times, beats = _onsets(0.5, n_beats=6)
+    assert swing_ratio(env, times, beats) == 0.0          # too few beats to trust
+    assert swing_ratio(env[:-5], times, beats) == 0.0     # mismatched arrays
+
+
+@pytest.mark.parametrize("ratio, feel", [
+    (0.0, ""), (0.35, ""), (0.5, "straight"), (0.54, "straight"), (0.57, "light swing"), (0.6, "swung"), (0.67, "swung"),
+])
+def test_describe_feel(ratio, feel):
+    assert describe_feel(ratio) == feel

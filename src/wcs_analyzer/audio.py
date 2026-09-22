@@ -38,6 +38,63 @@ def fold_tempo(bpm: float) -> float:
     return folded
 
 
+SWING_UNKNOWN_BELOW = 0.45  # an off-beat this early is a tracking or rhythm anomaly, not a feel
+SWING_STRAIGHT_MAX = 0.55   # an off-beat position below this reads as straight eighths
+SWING_SWUNG_MIN = 0.60      # and at or above this as a swung (triplet) feel
+_SWING_MIN_BEATS = 8
+_SWING_MIN_SHARE = 0.25
+_SWING_MIN_STRENGTH = 0.3
+
+
+def swing_ratio(onset_env: "np.ndarray", frame_times: "np.ndarray", beat_times: list[float]) -> float:
+    """Where the off-beat lands inside the beat, from the onset envelope.
+
+    For each beat the strongest onset between 30% and 85% of the way to the next beat is
+    taken as the off-beat, provided it is at least a third as strong as the beat's own
+    onset. The median of those positions is the swing ratio: 0.50 means straight eighths,
+    about 0.67 a triplet swing. Returns 0.0 when fewer than eight beats, or under a quarter
+    of them, carry a usable off-beat, which is the honest answer for a song with no audible
+    subdivision.
+    """
+    env = np.asarray(onset_env, dtype=float)
+    times = np.asarray(frame_times, dtype=float)
+    if len(beat_times) < _SWING_MIN_BEATS + 1 or env.size == 0 or env.size != times.size:
+        return 0.0
+    positions: list[float] = []
+    for a, b in zip(beat_times[:-1], beat_times[1:]):
+        span = b - a
+        if span <= 0:
+            continue
+        on = env[(times >= a - 0.1 * span) & (times < a + 0.15 * span)]
+        mask = (times >= a + 0.3 * span) & (times < a + 0.85 * span)
+        if on.size == 0 or not mask.any():
+            continue
+        seg = env[mask]
+        k = int(np.argmax(seg))
+        if seg[k] <= 0 or seg[k] < _SWING_MIN_STRENGTH * float(on.max()):
+            continue
+        positions.append((float(times[mask][k]) - a) / span)
+    if len(positions) < _SWING_MIN_BEATS or len(positions) < _SWING_MIN_SHARE * (len(beat_times) - 1):
+        return 0.0
+    return float(np.median(positions))
+
+
+def describe_feel(ratio: float) -> str:
+    """Name the rhythm feel for a swing ratio: 'straight', 'light swing', 'swung', or '' when unknown.
+
+    A ratio under 0.45 means the strongest off-beat sat before the middle of the beat, which
+    happens when the tracker locked onto the off-beats or the song runs on dotted rhythms;
+    that is reported as unknown rather than as straight.
+    """
+    if ratio < SWING_UNKNOWN_BELOW:
+        return ""
+    if ratio < SWING_STRAIGHT_MAX:
+        return "straight"
+    if ratio < SWING_SWUNG_MIN:
+        return "light swing"
+    return "swung"
+
+
 @dataclass
 class AudioFeatures:
     """Extracted audio features from a video."""
@@ -47,6 +104,8 @@ class AudioFeatures:
     beat_strengths: list[float] = field(default_factory=list)
     duration: float = 0.0
     downbeat_times: list[float] = field(default_factory=list)  # phrase starts
+    swing_ratio: float = 0.0  # where the off-beat onset sits inside the beat: 0.50 straight, ~0.67 triplet swing; 0 = unknown
+    feel: str = ""            # "straight" | "light swing" | "swung" | "" when it could not be measured
 
 
 def _check_audio_stream(video_path: Path) -> bool:
@@ -125,6 +184,10 @@ def extract_audio_features(video_path: Path) -> AudioFeatures:
             if max_s > 0:
                 beat_strengths = [s / max_s for s in beat_strengths]
 
+        # Rhythm feel: where the off-beat sits inside the beat (straight vs swung triples)
+        frame_times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr)
+        ratio = swing_ratio(onset_env, frame_times, beat_times)
+
         # Estimate downbeats (every 4 beats for common time)
         downbeat_times = beat_times[::4] if len(beat_times) >= 4 else beat_times[:1]
 
@@ -144,6 +207,8 @@ def extract_audio_features(video_path: Path) -> AudioFeatures:
             beat_strengths=beat_strengths,
             duration=duration,
             downbeat_times=downbeat_times,
+            swing_ratio=round(ratio, 3),
+            feel=describe_feel(ratio),
         )
 
 
