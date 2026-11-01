@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .exceptions import WCSAnalyzerError
+from .video import measure_frame_rate
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ def extract_poses(video_path: Path, fps: float = 5.0, max_dimension: int = 640) 
     if not cap.isOpened():
         raise WCSAnalyzerError(f"Cannot open video: {video_path}")
 
-    original_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    original_fps = measure_frame_rate(video_path, cap.get(cv2.CAP_PROP_FPS) or 30.0)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     duration = total_frames / original_fps if original_fps > 0 else 0.0
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
