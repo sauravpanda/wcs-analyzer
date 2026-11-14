@@ -22,6 +22,45 @@ _MAX_TOTAL_FRAMES = 500
 # stream). Typical WCS music sits around 90-120 BPM.
 _FALLBACK_BPM = 120.0
 
+# Frames read from the start of a clip to measure the real frame spacing.
+_CLOCK_PROBE_FRAMES = 30
+
+
+def measure_frame_rate(video_path: Path, reported_fps: float) -> float:
+    """Frame rate measured from the decoder's own frame timestamps.
+
+    Some iPhone HEVC files advertise an average frame rate in their header
+    (24.95 fps) that does not match the spacing of the frames themselves
+    (30 fps). Dividing a frame index by the header rate then stretches every
+    timestamp and the duration by 20% and puts the frames out of step with
+    the audio, which is timed from the real clock. So measure the spacing of
+    the first frames and fall back to the header rate only when the decoder
+    gives no usable clock.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    first: float | None = None
+    last: float | None = None
+    n = 0
+    try:
+        while n < _CLOCK_PROBE_FRAMES and cap.grab():
+            t = float(cap.get(cv2.CAP_PROP_POS_MSEC))
+            if first is None:
+                first = t
+            last = t
+            n += 1
+    finally:
+        cap.release()
+    if first is None or last is None or n < 2 or last <= first:
+        return reported_fps
+    measured = (n - 1) * 1000.0 / (last - first)
+    if reported_fps > 0 and abs(measured - reported_fps) / reported_fps < 0.01:
+        return reported_fps  # keep the exact header value when it agrees
+    logger.info(
+        "%s: header says %.2f fps but frames are spaced at %.2f fps; using the measured rate",
+        video_path.name, reported_fps, measured,
+    )
+    return measured
+
 
 @dataclass
 class FrameData:
@@ -52,7 +91,7 @@ def extract_frames(video_path: Path, fps: float = 3.0, max_dimension: int = 768)
     if not cap.isOpened():
         raise VideoProcessingError(f"Cannot open video: {video_path}")
 
-    original_fps = cap.get(cv2.CAP_PROP_FPS)
+    original_fps = measure_frame_rate(video_path, cap.get(cv2.CAP_PROP_FPS))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     duration = total_frames / original_fps if original_fps > 0 else 0
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -158,7 +197,7 @@ def get_video_duration(video_path: Path) -> float:
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise VideoProcessingError(f"Cannot open video: {video_path}")
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    fps = measure_frame_rate(video_path, cap.get(cv2.CAP_PROP_FPS))
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     cap.release()
     return frame_count / fps if fps > 0 else 0.0
@@ -227,7 +266,7 @@ def extract_frames_between(
     if not cap.isOpened():
         raise VideoProcessingError(f"Cannot open video: {video_path}")
 
-    original_fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    original_fps = measure_frame_rate(video_path, cap.get(cv2.CAP_PROP_FPS) or 0.0)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     duration = total_frames / original_fps if original_fps > 0 else 0.0
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -244,27 +283,41 @@ def extract_frames_between(
         cap.release()
         return data
 
-    interval = max(1, int(round(original_fps / fps)))
-    start_frame = int(start * original_fps)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    # Seek and label by time, not by frame number. OpenCV converts a frame
+    # number to a position with the header frame rate, so on a clip whose
+    # header is wrong a frame-number seek lands in the wrong place or past the
+    # end of the file; the decoder's own clock is the only reliable position.
+    cap.set(cv2.CAP_PROP_POS_MSEC, start * 1000.0)
     scale = min(max_dimension / max(width, 1), max_dimension / max(height, 1), 1.0)
     new_w, new_h = max(1, int(width * scale)), max(1, int(height * scale))
 
+    step = 1.0 / fps
+    next_t = start
     idx = 0
+    clock_ok = True
+    first_pos = 0.0
     while True:
         ret, frame = cap.read()
         if not ret:
             break
-        t = (start_frame + idx) / original_fps
-        if t > end:
-            break
-        if idx % interval == 0:
-            if scale < 1.0:
-                frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
-            _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-            data.images.append(base64.b64encode(buffer.tobytes()).decode("utf-8"))
-            data.timestamps.append(t)
+        pos = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+        if idx == 0:
+            first_pos = pos
+        elif idx == 1 and pos <= first_pos:
+            clock_ok = False  # the decoder gives no usable clock; count frames from the seek
+        t = pos if clock_ok else start + idx / original_fps
         idx += 1
+        if t + 1e-3 < next_t:
+            continue  # the seek landed a few frames early; walk up to the window
+        if t > end + 1e-3:
+            break
+        if scale < 1.0:
+            frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        data.images.append(base64.b64encode(buffer.tobytes()).decode("utf-8"))
+        data.timestamps.append(t)
+        while next_t <= t + 1e-3:
+            next_t += step
 
     cap.release()
     logger.debug("Extracted %d burst frames from %s (%.1f-%.1fs at %.1f fps)", len(data.images), video_path.name, start, end, fps)
